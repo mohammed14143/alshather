@@ -1,0 +1,1050 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#0f172a">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Alshather">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<title>&#x1F3E0; Alshather Control App</title>
+<style>
+:root{--bg:#f9fafb;--card:#fff;--sec:#f3f4f6;--s-ok:#f0fdf4;--s-warn:#fffbeb;--s-danger:#fef2f2;--s-info:#eff6ff;--s-purple:#f5f3ff;--text:#111827;--muted:#6b7280;--c-ok:#16a34a;--c-warn:#d97706;--c-danger:#dc2626;--c-info:#2563eb;--c-purple:#7c3aed;--border:#e5e7eb;--radius:12px;--rsm:8px;}
+@media(prefers-color-scheme:dark){:root{--bg:#0f172a;--card:#1e293b;--sec:#334155;--s-ok:#052e1690;--s-warn:#451a0390;--s-danger:#450a0a90;--s-info:#1e3a5f90;--s-purple:#3b076490;--text:#f1f5f9;--muted:#94a3b8;--c-ok:#4ade80;--c-warn:#fbbf24;--c-danger:#f87171;--c-info:#60a5fa;--c-purple:#a78bfa;--border:#334155;}}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Inter',system-ui,sans-serif;background:var(--bg);min-height:100vh;color:var(--text)}
+input,select{width:100%;padding:9px 12px;border-radius:var(--rsm);border:1px solid var(--border);font-size:14px;color:var(--text);outline:none;background:var(--card);font-family:inherit}
+input:focus,select:focus{border-color:var(--c-info)}
+.card{background:var(--card);border-radius:var(--radius);border:1px solid var(--border);padding:20px}
+.btn{padding:9px 18px;border-radius:var(--rsm);border:none;cursor:pointer;font-size:14px;font-weight:500;font-family:inherit;display:inline-flex;align-items:center;gap:6px}
+.btn-p{background:#2563eb;color:#fff}.btn-g{background:transparent;color:var(--text);border:1px solid var(--border)}.btn-sm{padding:6px 12px;font-size:13px}
+.overlay{position:fixed;inset:0;z-index:200;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;padding:16px}
+.modal{background:var(--card);border-radius:var(--radius);border:1px solid var(--border);padding:24px;width:100%;max-width:520px;max-height:90vh;overflow-y:auto}
+.tab{padding:12px 16px;border:none;background:none;cursor:pointer;font-size:13px;font-weight:500;color:var(--muted);border-bottom:2px solid transparent;white-space:nowrap;font-family:inherit}
+.tab.on{color:#2563eb;border-bottom-color:#2563eb}
+.badge{display:inline-flex;align-items:center;padding:3px 8px;border-radius:99px;font-size:11px;font-weight:500;cursor:pointer;border:none;font-family:inherit}
+.b-ok{background:var(--s-ok);color:var(--c-ok)}.b-warn{background:var(--s-warn);color:var(--c-warn)}.b-danger{background:var(--s-danger);color:var(--c-danger)}.b-purple{background:var(--s-purple);color:var(--c-purple)}
+.mtoggle{padding:7px 10px;border-radius:var(--rsm);font-size:12px;cursor:pointer;font-family:inherit;font-weight:500;border:1px solid var(--border);background:var(--card);color:var(--muted);text-align:left;width:100%}
+.mtoggle.paid{background:var(--s-ok);color:var(--c-ok);border-color:transparent}
+.pill{font-size:10px;padding:2px 7px;border-radius:99px;font-weight:600}
+.dot{width:7px;height:7px;border-radius:50%;flex-shrink:0;display:inline-block}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script>
+const N=16,LS_DATA='aca-v3',LS_FB='aca-fb',LS_ADM='aca-admin';
+const TRASH=`<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>`;
+const CLOSE=`<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>`;
+const gid=()=>`${Date.now()}-${Math.random().toString(36).slice(2,7)}`;
+const fmt=n=>'SAR '+(+n||0).toLocaleString('en',{minimumFractionDigits:2,maximumFractionDigits:2});
+const nowM=()=>new Date().toISOString().slice(0,7);
+const nowD=()=>new Date().toISOString().slice(0,10);
+const mLbl=ym=>new Date(ym+'-01').toLocaleDateString('en',{month:'long',year:'numeric'});
+function addM(ym,n){const[y,m]=ym.split('-').map(Number);const t=m-1+n;return`${y+Math.floor(t/12)}-${String((t%12)+1).padStart(2,'0')}`;}
+
+// Admin
+let isAdmin=localStorage.getItem(LS_ADM)==='true';
+async function hashPw(pw){const d=new TextEncoder().encode(pw+':aca-salt-2025');const b=await crypto.subtle.digest('SHA-256',d);return Array.from(new Uint8Array(b)).map(x=>x.toString(16).padStart(2,'0')).join('');}
+function setAdmin(v){isAdmin=v;localStorage.setItem(LS_ADM,v?'true':'false');render();}
+
+function openUnlockModal(cb){
+  let pw='';
+  const err=el('div',{style:{color:'var(--c-danger)',fontSize:'13px',marginTop:'8px',display:'none'}},['Incorrect password.']);
+  const pi=document.createElement('input');pi.type='password';pi.placeholder='Admin password';pi.addEventListener('input',e=>pw=e.target.value);pi.addEventListener('keydown',e=>{if(e.key==='Enter')go();});
+  const btn=el('button',{class:'btn btn-p',style:{width:'100%'}},['Unlock']);
+  async function go(){
+    if(!pw)return;
+    if(!state.adminHash){setAdmin(true);modalEl&&(modalEl.remove(),modalEl=null);cb&&cb();return;}
+    const h=await hashPw(pw);
+    if(h===state.adminHash){setAdmin(true);modalEl&&(modalEl.remove(),modalEl=null);cb&&cb();}
+    else{err.style.display='block';pi.value='';pw='';}
+  }
+  btn.addEventListener('click',go);
+  const note=!state.adminHash
+    ?el('div',{style:{background:'var(--s-info)',borderRadius:'var(--rsm)',padding:'10px 12px',marginBottom:'12px',fontSize:'13px',color:'var(--c-info)'}},[`No password set \u2014 click Unlock to enter admin mode.`])
+    :el('div',{style:{fontSize:'13px',color:'var(--muted)',marginBottom:'12px'}},['Enter the admin password to enable editing.']);
+  showModal('&#x1F512; Unlock Editing',el('div',[note,fw('Password',pi),btn,err]));
+}
+
+function openSetPwModal(){
+  let p1='',p2='';
+  const err=el('div',{style:{color:'var(--c-danger)',fontSize:'13px',marginTop:'8px',display:'none'}});
+  const i1=document.createElement('input');i1.type='password';i1.placeholder='New password (min 4 chars)';i1.addEventListener('input',e=>p1=e.target.value);
+  const i2=document.createElement('input');i2.type='password';i2.placeholder='Confirm password';i2.addEventListener('input',e=>p2=e.target.value);
+  const btn=el('button',{class:'btn btn-p',style:{width:'100%'}},['Save password']);
+  btn.addEventListener('click',async()=>{
+    if(p1.length<4){err.textContent='Min 4 characters.';err.style.display='block';return;}
+    if(p1!==p2){err.textContent='Passwords do not match.';err.style.display='block';return;}
+    const h=await hashPw(p1);
+    upd(s=>({...s,adminHash:h}));modalEl&&(modalEl.remove(),modalEl=null);
+  });
+  showModal('Set Admin Password',el('div',[
+    el('div',{style:{background:'var(--s-warn)',borderRadius:'var(--rsm)',padding:'10px 12px',marginBottom:'14px',fontSize:'13px',color:'var(--c-warn)'}},[`Share this password only with those who need to edit. Others will be read-only observers.`]),
+    fw('New password',i1),fw('Confirm',i2),btn,err
+  ]));
+}
+
+// State
+const INIT={members:[
+  {id:'m1',name:'Abdulrahman'},{id:'m2',name:'Mohammed'},{id:'m3',name:'Abdulaziz'},
+  {id:'m4',name:'Turki'},{id:'m5',name:'Haitham'},{id:'m6',name:'Bader'},
+  {id:'m7',name:'Meshari'},{id:'m8',name:'Sultan'},{id:'m9',name:'Meshal'},
+  {id:'m10',name:'Saleh'},{id:'m11',name:'Waleed'},{id:'m12',name:'Faisal'},
+  {id:'m13',name:'Amir'},{id:'m14',name:'Nawaf'},{id:'m15',name:'Fahad'},{id:'m16',name:'Saad'}
+],treasurer:'m1',adminHash:null,rentPeriods:[],expenses:[],settlements:[],rentPayments:{},qattahs:[],
+gathering:{groups:['Abdulaziz & Turki','Mohammed & Abdulrahman','Haitham & Bader','Meshari & Sultan','Meshal & Saleh','Waleed & Faisal','Amir & Nawaf','Fahad & Saad'],anchorDate:'2026-06-23',anchorGroup:3,skipped:[]},
+activity:[]
+};
+function migrate(s){
+  if(!s)return JSON.parse(JSON.stringify(INIT));
+  return{
+    members:s.members||INIT.members,
+    treasurer:s.treasurer!==undefined?s.treasurer:'m1',
+    adminHash:s.adminHash||null,
+    rentPeriods:s.rentPeriods||[],
+    expenses:(s.expenses||[]).map(e=>({...e,paidMembers:e.paidMembers||(e.paidBy?[e.paidBy]:[]),poolSettled:e.poolSettled||false})),
+    settlements:s.settlements||[],
+    rentPayments:(()=>{const rp={};Object.keys(s.rentPayments||{}).forEach(mk=>{const v=s.rentPayments[mk];if(Array.isArray(v)){const obj={};v.forEach(id=>obj[id]={status:'paid',settlementId:null});rp[mk]=obj;}else{rp[mk]=v||{};}});return rp;})(),
+    qattahs:(s.qattahs||[]).map(q=>({...q,shares:(q.shares||[]).map(sh=>({...sh,settled:sh.settled!==undefined?sh.settled:(sh.paid||false),settledBy:sh.settledBy||null,cashSettlementId:sh.cashSettlementId||null,partialPaid:sh.partialPaid||0,partialIds:sh.partialIds||[]}))})),
+    gathering:s.gathering?{...INIT.gathering,...s.gathering,swaps:s.gathering.swaps||{}}:INIT.gathering,
+    activity:(s.activity||[]).slice(-200),
+  };
+}
+let state=null,tab='dashboard',expView='monthly',modalEl=null;
+
+// Firebase (REST + anonymous auth)
+let DB_URL=null,FB_KEY=null,evtSrc=null,fbOnline=false,justWrote=false;
+let fbToken=null,fbTokenExp=0,authTimer=null;
+const isValidFb=u=>u&&u.startsWith('https://')&&(u.includes('firebaseio.com')||u.includes('firebasedatabase.app'));
+const fbPath=()=>DB_URL+'/aca.json'+(fbToken?'?auth='+fbToken:'');
+
+// Anonymous authentication: sign in silently, refresh before expiry
+async function fbAuth(){
+  if(!FB_KEY)return null; // no key configured -> open-rules mode (legacy)
+  if(fbToken&&Date.now()<fbTokenExp)return fbToken;
+  const savedRefresh=localStorage.getItem('aca-fbrt');
+  try{
+    if(savedRefresh){
+      // Refresh existing anonymous session
+      const r=await fetch('https://securetoken.googleapis.com/v1/token?key='+FB_KEY,{
+        method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},
+        body:'grant_type=refresh_token&refresh_token='+encodeURIComponent(savedRefresh)});
+      if(r.ok){const d=await r.json();fbToken=d.id_token;fbTokenExp=Date.now()+(+d.expires_in)*1000-300000;localStorage.setItem('aca-fbrt',d.refresh_token);scheduleAuthRefresh();return fbToken;}
+      localStorage.removeItem('aca-fbrt'); // refresh failed -> new anon account
+    }
+    // Create new anonymous session
+    const r=await fetch('https://identitytoolkit.googleapis.com/v1/accounts:signUp?key='+FB_KEY,{
+      method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({returnSecureToken:true})});
+    if(!r.ok)throw new Error('auth failed');
+    const d=await r.json();fbToken=d.idToken;fbTokenExp=Date.now()+(+d.expiresIn)*1000-300000;localStorage.setItem('aca-fbrt',d.refreshToken);scheduleAuthRefresh();return fbToken;
+  }catch(e){fbToken=null;return null;}
+}
+function scheduleAuthRefresh(){
+  if(authTimer)clearTimeout(authTimer);
+  const ms=Math.max(fbTokenExp-Date.now(),60000);
+  authTimer=setTimeout(async()=>{fbToken=null;await fbAuth();if(DB_URL)fbSub();},ms);
+}
+async function fbRead(){await fbAuth();const r=await fetch(fbPath());if(!r.ok)throw new Error();return r.json();}
+async function fbWrite(d){await fbAuth();justWrote=true;setTimeout(()=>justWrote=false,3500);await fetch(fbPath(),{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(d)});}
+async function fbSub(){
+  await fbAuth();
+  if(evtSrc)evtSrc.close();
+  evtSrc=new EventSource(fbPath());
+  evtSrc.onopen=()=>{fbOnline=true;rdot();};
+  evtSrc.onerror=()=>{fbOnline=false;rdot();};
+  evtSrc.addEventListener('auth_revoked',async()=>{fbToken=null;await fbAuth();fbSub();});
+  evtSrc.addEventListener('cancel',async()=>{fbToken=null;await fbAuth();fbSub();});
+  evtSrc.addEventListener('put',e=>{if(justWrote)return;try{const d=JSON.parse(e.data);const raw=typeof d.data==='string'?JSON.parse(d.data):d.data;if(raw){state=migrate(raw);lsS();render();}}catch{}});
+}
+// Daily backups: snapshot state to /aca-backups/{date}.json, keep last 7
+async function fbSnapshot(){
+  if(!DB_URL)return;
+  const today=nowD();
+  if(localStorage.getItem('aca-lastsnap')===today)return;
+  try{
+    await fbAuth();
+    await fetch(DB_URL+'/aca-backups/'+today+'.json'+(fbToken?'?auth='+fbToken:''),{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(state)});
+    localStorage.setItem('aca-lastsnap',today);
+    // prune: keep last 7
+    const r=await fetch(DB_URL+'/aca-backups.json?shallow=true'+(fbToken?'&auth='+fbToken:''));
+    if(r.ok){const keys=Object.keys(await r.json()||{}).sort();
+      for(const k of keys.slice(0,-7))await fetch(DB_URL+'/aca-backups/'+k+'.json'+(fbToken?'?auth='+fbToken:''),{method:'DELETE'});}
+  }catch{}
+}
+async function listBackups(){
+  if(!DB_URL)return [];
+  try{await fbAuth();const r=await fetch(DB_URL+'/aca-backups.json?shallow=true'+(fbToken?'&auth='+fbToken:''));
+    if(!r.ok)return [];return Object.keys(await r.json()||{}).sort().reverse();}catch{return [];}
+}
+async function restoreBackup(dateKey){
+  await fbAuth();
+  const r=await fetch(DB_URL+'/aca-backups/'+dateKey+'.json'+(fbToken?'?auth='+fbToken:''));
+  if(!r.ok)throw new Error();
+  const snap=await r.json();if(!snap)throw new Error();
+  await upd(()=>migrate(snap),'restored data from backup '+dateKey);
+}
+function getShareURL(){if(!DB_URL)return null;const payload=FB_KEY?JSON.stringify({u:DB_URL,k:FB_KEY}):DB_URL;return location.origin+location.pathname+'#'+btoa(payload);}
+function rdot(){const d=document.getElementById('cdot'),l=document.getElementById('clbl');if(d)d.style.background=DB_URL?(fbOnline?'#22c55e':'#f59e0b'):'#9ca3af';if(l)l.textContent=DB_URL?(fbOnline?'Live':'Connecting...'):'Local only';}
+
+function lsS(){localStorage.setItem(LS_DATA,JSON.stringify(state));}
+function lsL(){try{const s=localStorage.getItem(LS_DATA);return s?JSON.parse(s):null;}catch{return null;}}
+const devName=()=>localStorage.getItem('aca-devname')||'';
+async function upd(fn,logMsg){
+  state=fn(state);
+  if(logMsg){
+    const who=devName();
+    state={...state,activity:[...(state.activity||[]),{id:gid(),ts:Date.now(),who,msg:logMsg}].slice(-200)};
+  }
+  lsS();render();
+  if(DB_URL){try{await fbWrite(state);}catch{fbOnline=false;rdot();}}
+}
+
+// Business logic
+function calcBal(){
+  const b={};state.members.forEach(m=>b[m.id]=0);
+  state.expenses.filter(e=>e.paidBy).forEach(({amount,paidBy,paidMembers})=>{
+    const sh=amount/N;const paid=new Set(paidMembers||[]);paid.add(paidBy);
+    const unpaidCount=state.members.filter(m=>!paid.has(m.id)).length;
+    b[paidBy]+=unpaidCount*sh;
+  });
+  state.qattahs.forEach(q=>{q.shares.forEach(s=>{b[s.memberId]-=s.amount;});});
+  state.settlements.forEach(s=>{
+    if(s.type==='pool_receive')b[s.memberId]+=+s.amount;
+    else if(s.type==='pool_pay')b[s.memberId]-=+s.amount;
+    else if(s.type==='member_owes')b[s.memberId]-=+s.amount;
+    else if(s.from&&s.to){b[s.from]+=+s.amount;b[s.to]-=+s.amount;}
+  });
+  const _rp=state.rentPeriods.find(r=>nowM()>=r.startMonth&&nowM()<=addM(r.startMonth,5));
+  if(_rp){const _ms=_rp.amount6m/N/6;for(let i=0;i<6;i++){const mk=addM(_rp.startMonth,i);if(mk>nowM())break;const md=state.rentPayments[mk]||{};state.members.forEach(m=>{const e=Array.isArray(md)?null:md[m.id];if(e?.status==='paid'&&!e?.settlementId)return;b[m.id]-=_ms;});}}
+  return b;
+}
+function autoSettleQattah(ns,memberId,reason){
+  return{...ns,qattahs:ns.qattahs.map(q=>({...q,shares:q.shares.map(sh=>sh.memberId===memberId&&!sh.settled?{...sh,settled:true,settledBy:reason||'expense'}:sh)}))};
+}
+function memberBreakdown(mid){
+  const lines=[];
+  state.expenses.filter(e=>e.paidBy===mid).forEach(e=>{
+    const sh=e.amount/N;const paid=new Set(e.paidMembers||[]);paid.add(mid);
+    const unpaid=state.members.filter(m=>!paid.has(m.id));
+    const direct=state.members.filter(m=>m.id!==mid&&paid.has(m.id));
+    if(unpaid.length>0){const lbl=e.name+(e.month?' ('+mLbl(e.month)+')':e.date?' ('+e.date+')':'');lines.push({label:'Fronted: '+lbl+' ('+unpaid.length+' unpaid)',amount:unpaid.length*sh,tag:'fronted'});}
+    if(direct.length>0){const lbl=e.name+(e.month?' ('+mLbl(e.month)+')':e.date?' ('+e.date+')':'');lines.push({label:'Fronted: '+lbl+' ('+direct.length+' paid directly)',amount:direct.length*sh,tag:'settled'});}
+  });
+  state.qattahs.forEach(q=>{const s=q.shares.find(x=>x.memberId===mid);if(s){const lbl=s.settled?(s.settledBy==='cash'?q.name+' ✔ cash paid':q.name+' ✓ settled'):((s.partialPaid||0)>0?q.name+' (partial: '+fmt(s.partialPaid)+' paid)':q.name+' (unsettled)');lines.push({label:lbl,amount:-s.amount,tag:s.settled?'qsettled':'qattah'});}});
+  {const _rp=state.rentPeriods.find(r=>nowM()>=r.startMonth&&nowM()<=addM(r.startMonth,5));
+  if(_rp){const _ms=_rp.amount6m/N/6;for(let i=0;i<6;i++){const mk=addM(_rp.startMonth,i);if(mk>nowM())break;const md=state.rentPayments[mk]||{};const e=Array.isArray(md)?null:md[mid];let lbl,amt,tag;
+    if(!e){lbl='Rent '+mLbl(mk)+' (unpaid)';amt=-_ms;tag='qattah';}
+    else if(e.status==='partial'){lbl='Rent '+mLbl(mk)+' (partial: '+fmt(e.paid||0)+' paid)';amt=-_ms;tag='qattah';}
+    else if(e.status==='settled'){lbl='Rent '+mLbl(mk)+' ✓ settled';amt=-_ms;tag='qsettled';}
+    else if(e.status==='paid'&&!e.settlementId){lbl='Rent '+mLbl(mk)+' ✓ paid';amt=0;tag='qsettled';}
+    else{lbl='Rent '+mLbl(mk)+' \uD83D\uDCB0 paid (cash)';amt=-_ms;tag='qsettled';}
+    lines.push({label:lbl,amount:amt,tag});}}}
+  state.settlements.forEach(s=>{
+    if(s.type==='pool_receive'&&s.memberId===mid)lines.push({label:'Paid to Group Account ('+s.date+')',amount:+s.amount,tag:'settlement'});
+    if(s.type==='pool_pay'&&s.memberId===mid)lines.push({label:'Received from Group Account ('+s.date+')',amount:-s.amount,tag:'settlement'});
+    if(s.type==='member_owes'&&s.memberId===mid){const dd=daysSince(s.date);lines.push({label:'Owes: '+(s.note||'manual debt')+' ('+s.date+(dd>0?' \u00b7 '+dd+'d ago':'')+')',amount:-s.amount,tag:'qattah'});}
+    if(!s.type&&s.from===mid){const to=state.members.find(m=>m.id===s.to);lines.push({label:'Paid to '+(to?.name||'?')+' ('+s.date+')',amount:+s.amount,tag:'settlement'});}
+    if(!s.type&&s.to===mid){const from=state.members.find(m=>m.id===s.from);lines.push({label:'Received from '+(from?.name||'?')+' ('+s.date+')',amount:-s.amount,tag:'settlement'});}
+  });
+  return lines;
+}
+function qPool(){const col=state.qattahs.reduce((s,q)=>s+q.shares.reduce((s2,sh)=>s2+(sh.settledBy==='cash'?sh.amount:(sh.partialPaid||0)),0),0);const spent=state.expenses.reduce((s,e)=>s+e.amount,0);return{col,spent,bal:col-spent};}
+function pCnt(e){if(!e.paidBy)return{p:(e.paidMembers||[]).length,t:N};const s=new Set(e.paidMembers||[]);s.add(e.paidBy);return{p:s.size,t:N};}
+const daysSince=ds=>{const d=Math.floor((Date.now()-new Date(ds+'T00:00:00'))/86400000);return d>0?d:0;};
+const rFor=ym=>state.rentPeriods.find(r=>ym>=r.startMonth&&ym<=addM(r.startMonth,5))||null;
+const rCnt=ym=>{const d=state.rentPayments[ym]||{};const p=Array.isArray(d)?d.length:Object.values(d).filter(e=>e&&e.status!=='partial').length;return{p,t:N};};
+const qCnt=q=>({p:q.shares.filter(s=>s.settled).length,t:N});
+function getNextTue(from){const d=new Date(from);d.setHours(0,0,0,0);const dtt=(2-d.getDay()+7)%7;d.setDate(d.getDate()+dtt);return d;}
+function toDS(d){return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');}
+function gGroupIdx(ds){const g=state.gathering;if(!g)return 0;if(g.swaps&&g.swaps[ds]!==undefined)return g.swaps[ds];const anc=new Date(g.anchorDate+'T00:00:00');const tgt=new Date(ds+'T00:00:00');const diffD=Math.round((tgt-anc)/86400000);const totalW=Math.round(diffD/7);const skB=(g.skipped||[]).filter(sk=>{const sd=new Date(sk+'T00:00:00');const d=Math.round((sd-anc)/86400000);return d>0&&d<=diffD;}).length;const eff=totalW-skB;const n=g.groups.length;return((g.anchorGroup+eff)%n+n)%n;}
+function getGatherings(){const t1=getNextTue(new Date());const t1s=toDS(t1);const t2=new Date(t1);t2.setDate(t1.getDate()+7);const t2s=toDS(t2);const g=state.gathering;return[{date:t1,ds:t1s,group:g?g.groups[gGroupIdx(t1s)]:'?',skipped:(g&&g.skipped||[]).includes(t1s)},{date:t2,ds:t2s,group:g?g.groups[gGroupIdx(t2s)]:'?',skipped:(g&&g.skipped||[]).includes(t2s)}];}
+function getPoolAlert(){const pool=qPool();if(pool.bal>=0)return null;const short=-pool.bal;const perP=Math.ceil(short/N/50)*50;return{short,perP};}
+function getRentAlert(){const ym=nowM(),rp=rFor(ym);if(!rp)return null;const lastM=addM(rp.startMonth,5);const twoOut=addM(ym,2);if(lastM>twoOut)return null;const months=[];for(let i=0;i<6;i++){const mk=addM(rp.startMonth,i);if(mk>=ym)months.push(mk);}return{lastM,months};}
+
+// DOM helpers
+function el(tag,a,c){if(Array.isArray(a)){c=a;a={};}const e=document.createElement(tag);Object.entries(a||{}).forEach(([k,v])=>{if(k==='style'&&typeof v==='object')Object.assign(e.style,v);else if(k.startsWith('on')&&typeof v==='function')e.addEventListener(k.slice(2).toLowerCase(),v);else if(k==='class')e.className=v;else e.setAttribute(k,v);});(c||[]).forEach(x=>{if(x!=null)e.append(typeof x==='string'?document.createTextNode(x):x);});return e;}
+function ib(cb,svg,title=''){const b=document.createElement('button');b.style.cssText='background:none;border:none;cursor:pointer;color:var(--muted);padding:4px;display:inline-flex;align-items:center';b.innerHTML=svg;b.title=title;b.addEventListener('click',cb);return b;}
+function fw(lbl,child){return el('div',{style:{marginBottom:'14px'}},[el('div',{style:{fontSize:'12px',fontWeight:'500',color:'var(--muted)',marginBottom:'5px',textTransform:'uppercase',letterSpacing:'.4px'}},[lbl]),child]);}
+function mki(type,ph,val,cb){const i=document.createElement('input');i.type=type;i.placeholder=ph;if(val)i.value=val;i.addEventListener('input',e=>cb(e.target.value));return i;}
+function mks(opts,cb){const s=document.createElement('select');opts.forEach(([v,l])=>s.appendChild(el('option',{value:v},[l])));s.addEventListener('change',e=>cb(e.target.value));return s;}
+function showModal(title,content){
+  if(modalEl)modalEl.remove();
+  const close=()=>{modalEl&&(modalEl.remove(),modalEl=null);};
+  const inner=el('div',{class:'modal'},[el('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'20px'}},[el('div',{style:{fontSize:'16px',fontWeight:'500'}},[title]),ib(close,CLOSE)]),content]);
+  modalEl=el('div',{class:'overlay'},[inner]);
+  modalEl.addEventListener('click',e=>{if(e.target===modalEl)close();});
+  document.body.appendChild(modalEl);
+}
+
+// Payment modal
+function openPayModal(type,id){
+  if(!isAdmin){openUnlockModal(()=>openPayModal(type,id));return;}
+
+  // ── Rent modal: per-member Settled / Cash paid (mirrors Qattah) ───────────
+  if(type==='rent'){
+    const ym=id;const rp=rFor(ym);const ms=rp?rp.amount6m/N/6:0;
+    const content=el('div');
+    content.appendChild(el('div',{style:{background:'var(--s-info)',borderRadius:'var(--rsm)',padding:'10px 12px',marginBottom:'14px',fontSize:'12px',color:'var(--c-info)'}},
+      ['Settled = arrangement made (\u2212amount stays in balance). Cash paid = money received (+amount recorded in balance).']));
+    const cnt=rCnt(ym);
+    const sumEl=el('div',{style:{fontSize:'13px',color:'var(--muted)',marginBottom:'12px'}});
+    sumEl.textContent=cnt.p+' / '+N+' settled or paid';
+    content.appendChild(sumEl);
+    const tbl=el('div');
+    const hdr=el('div',{style:{display:'grid',gridTemplateColumns:'1fr auto auto',gap:'8px',padding:'6px 0',borderBottom:'1px solid var(--border)',marginBottom:'8px'}});
+    hdr.appendChild(el('div',{style:{fontSize:'11px',fontWeight:'500',color:'var(--muted)',textTransform:'uppercase'}},['Member']));
+    hdr.appendChild(el('div',{style:{fontSize:'11px',fontWeight:'500',color:'var(--c-ok)',textTransform:'uppercase',width:'72px',textAlign:'center'}},['Settled']));
+    hdr.appendChild(el('div',{style:{fontSize:'11px',fontWeight:'500',color:'var(--c-warn)',textTransform:'uppercase',width:'72px',textAlign:'center'}},['Cash paid']));
+    tbl.appendChild(hdr);
+    state.members.forEach(m=>{
+      const md=state.rentPayments[ym]||{};
+      const entry=Array.isArray(md)?null:md[m.id];
+      const isLegacy=entry&&entry.status==='paid'&&!entry.settlementId;
+      const isCashPaid=entry&&entry.status==='paid'&&!!entry.settlementId;
+      const isSettledOnly=entry&&entry.status==='settled';
+      const isPartial=entry&&entry.status==='partial';
+      const isSettled=!!entry&&!isPartial;
+      const row=el('div',{style:{display:'grid',gridTemplateColumns:'1fr auto auto',gap:'8px',padding:'7px 0',borderBottom:'1px solid var(--border)',alignItems:'center'}});
+      row.appendChild(el('div',{style:{fontSize:'13px',fontWeight:'500'}},[m.name]));
+      // Settled button
+      const sOn=isSettledOnly||isLegacy;
+      const sLbl=isLegacy?'\u2713 Paid':isSettledOnly?'\u2713 Settled':'Settle';
+      const sBtn=el('button',{style:{width:'72px',padding:'5px 4px',borderRadius:'var(--rsm)',border:'1px solid var(--border)',cursor:'pointer',fontSize:'12px',fontWeight:'500',fontFamily:'inherit',background:sOn?'var(--s-ok)':'var(--card)',color:sOn?'var(--c-ok)':'var(--muted)'}},[sLbl]);
+      sBtn.addEventListener('click',()=>{
+        if(isCashPaid){
+          upd(p=>{const nm={...p,rentPayments:{...p.rentPayments,[ym]:Object.fromEntries(Object.entries(p.rentPayments[ym]||{}).filter(([k])=>k!==m.id))}};nm.settlements=nm.settlements.filter(s=>s.id!==entry.settlementId);return nm;});
+        }else if(isSettled){
+          upd(p=>({...p,rentPayments:{...p.rentPayments,[ym]:Object.fromEntries(Object.entries(p.rentPayments[ym]||{}).filter(([k])=>k!==m.id))}}));
+        }else{
+          upd(p=>({...p,rentPayments:{...p.rentPayments,[ym]:{...(p.rentPayments[ym]||{}),[m.id]:{status:'settled',settlementId:null}}}}),'marked '+m.name+' rent '+mLbl(ym)+' as settled');
+        }
+        modalEl&&(modalEl.remove(),modalEl=null);openPayModal('rent',ym);
+      });
+      row.appendChild(sBtn);
+      // Cash paid button
+      const cLbl=isCashPaid?'\u2714 Paid':isPartial?Math.round(entry.paid)+'/'+Math.round(ms):'Cash';
+      const cBtn=el('button',{style:{width:'72px',padding:'5px 4px',borderRadius:'var(--rsm)',border:'1px solid var(--border)',cursor:'pointer',fontSize:'11px',fontWeight:'500',fontFamily:'inherit',background:isCashPaid?'#fef3c7':isPartial?'var(--s-warn)':'var(--card)',color:isCashPaid?'#92400e':isPartial?'var(--c-warn)':'var(--muted)'}},[cLbl]);
+      cBtn.addEventListener('click',()=>{
+        if(isCashPaid){
+          upd(p=>{const nm={...p,rentPayments:{...p.rentPayments,[ym]:Object.fromEntries(Object.entries(p.rentPayments[ym]||{}).filter(([k])=>k!==m.id))}};nm.settlements=nm.settlements.filter(s=>s.id!==entry.settlementId);return nm;},'undid '+m.name+' rent '+mLbl(ym)+' cash payment');
+          modalEl&&(modalEl.remove(),modalEl=null);openPayModal('rent',ym);return;
+        }
+        const already=entry&&entry.status==='partial'?(entry.paid||0):0;
+        const remaining=ms-already;
+        const inp=prompt('Amount received from '+m.name+' for rent '+mLbl(ym)+' (SAR).\nRemaining: '+Math.round(remaining),String(Math.round(remaining)));
+        if(inp===null)return;
+        const amt=+inp;if(!amt||amt<=0)return;
+        const sid=gid();
+        if(amt>=remaining-0.5){
+          // full payment (or completes the remainder)
+          upd(p=>({...p,
+            rentPayments:{...p.rentPayments,[ym]:{...(p.rentPayments[ym]||{}),[m.id]:{status:'paid',settlementId:sid,priorPartialIds:(entry&&entry.settlementIds)||[]}}},
+            settlements:[...p.settlements,{id:sid,type:'pool_receive',memberId:m.id,amount:remaining,date:nowD(),note:'Rent '+mLbl(ym)+' \u2014 cash payment'}]
+          }),'recorded '+m.name+' rent '+mLbl(ym)+' cash payment ('+fmt(remaining)+')');
+        }else{
+          // partial
+          upd(p=>({...p,
+            rentPayments:{...p.rentPayments,[ym]:{...(p.rentPayments[ym]||{}),[m.id]:{status:'partial',paid:already+amt,settlementIds:[...((entry&&entry.settlementIds)||[]),sid],settlementId:null}}},
+            settlements:[...p.settlements,{id:sid,type:'pool_receive',memberId:m.id,amount:amt,date:nowD(),note:'Rent '+mLbl(ym)+' \u2014 partial payment'}]
+          }),'recorded '+m.name+' rent '+mLbl(ym)+' PARTIAL payment ('+fmt(amt)+' of '+fmt(ms)+')');
+        }
+        modalEl&&(modalEl.remove(),modalEl=null);openPayModal('rent',ym);
+      });
+      row.appendChild(cBtn);tbl.appendChild(row);
+    });
+    content.appendChild(tbl);
+    content.appendChild(el('button',{class:'btn btn-p',style:{width:'100%',marginTop:'14px'},onclick:()=>{modalEl&&(modalEl.remove(),modalEl=null);}},['Done']));
+    showModal('Rent: '+mLbl(ym),content);return;
+  }
+
+  // ── Expense modal ─────────────────────────────────────────────────────────
+  if(type==='expense'){
+    const exp=state.expenses.find(e=>e.id===id);if(!exp)return;
+    let paidM=new Set(exp.paidMembers||[]);const frozen=[];
+    if(exp.paidBy){paidM.add(exp.paidBy);frozen.push(exp.paidBy);}
+    const saveFn=()=>upd(p=>({...p,expenses:p.expenses.map(e=>e.id===id?{...e,paidMembers:[...paidM]}:e)}));
+    const sumEl=el('div',{style:{fontSize:'13px',color:'var(--muted)',marginBottom:'12px'}});
+    const grid=el('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'8px',marginBottom:'16px'}});
+    function refresh(){
+      sumEl.textContent=paidM.size+' / '+N+' have paid';grid.innerHTML='';
+      state.members.forEach(m=>{
+        const paid=paidM.has(m.id),frz=frozen.includes(m.id);
+        const btn=el('button',{class:'mtoggle'+(paid?' paid':'')},[paid?'\u2713 '+m.name:m.name]);
+        if(frz)btn.style.cursor='default';
+        else btn.addEventListener('click',()=>{paid?paidM.delete(m.id):paidM.add(m.id);saveFn();refresh();});
+        grid.appendChild(btn);
+      });
+    }
+    refresh();
+    const content=el('div');
+    if(frozen[0]){const py=state.members.find(m=>m.id===frozen[0]);if(py)content.appendChild(el('div',{style:{background:'var(--s-info)',borderRadius:'var(--rsm)',padding:'10px 12px',marginBottom:'12px',fontSize:'12px',color:'var(--c-info)'}},[py.name+' fronted this expense.']));
+      if(exp.poolSettled)content.appendChild(el('div',{style:{background:'var(--s-ok)',borderRadius:'var(--rsm)',padding:'10px 12px',marginBottom:'12px',fontSize:'12px',color:'var(--c-ok)'}},
+        ['\u2713 Pool has settled the remaining balance. Use "Pool paid to member" in Balances to clear the fronter\u2019s credit.']));
+    }
+    if(!frozen[0])content.appendChild(el('div',{style:{background:'var(--s-purple)',borderRadius:'var(--rsm)',padding:'10px 12px',marginBottom:'12px',fontSize:'12px',color:'var(--c-purple)'}},['This expense is covered by the Qattah pool.']));
+    content.appendChild(sumEl);content.appendChild(grid);
+    if(frozen[0]&&!exp.poolSettled){
+      const poolBtn=el('button',{class:'btn btn-g',style:{width:'100%',marginBottom:'8px'}},['Pool settles remaining (mark as closed)']);
+      poolBtn.addEventListener('click',()=>{upd(p=>({...p,expenses:p.expenses.map(e=>e.id===id?{...e,poolSettled:true}:e)}),'pool settled remaining for: '+exp.name);modalEl&&(modalEl.remove(),modalEl=null);});
+      content.appendChild(poolBtn);
+    }
+    content.appendChild(el('button',{class:'btn btn-p',style:{width:'100%'},onclick:()=>{modalEl&&(modalEl.remove(),modalEl=null);}},['Done']));
+    showModal('Payments: '+exp.name,content);return;
+  }
+
+  // ── Qattah modal: unified Settled / Cash paid table ───────────────────────
+  const q=state.qattahs.find(x=>x.id===id);if(!q)return;
+  const content=el('div');
+  content.appendChild(el('div',{style:{background:'var(--s-info)',borderRadius:'var(--rsm)',padding:'10px 12px',marginBottom:'14px',fontSize:'12px',color:'var(--c-info)'}},
+    ['Mark each member as \u2713 Settled (covered by expense or any reason) or Cash paid (physically handed money \u2014 also records +SAR in their balance).']));
+  function buildTable(){
+    const tbl=el('div');
+    const hdr=el('div',{style:{display:'grid',gridTemplateColumns:'1fr auto auto',gap:'8px',padding:'6px 0',borderBottom:'1px solid var(--border)',marginBottom:'8px'}});
+    hdr.appendChild(el('div',{style:{fontSize:'11px',fontWeight:'500',color:'var(--muted)',textTransform:'uppercase'}},['Member']));
+    hdr.appendChild(el('div',{style:{fontSize:'11px',fontWeight:'500',color:'var(--c-ok)',textTransform:'uppercase',width:'72px',textAlign:'center'}},['Settled']));
+    hdr.appendChild(el('div',{style:{fontSize:'11px',fontWeight:'500',color:'var(--c-warn)',textTransform:'uppercase',width:'72px',textAlign:'center'}},['Cash paid']));
+    tbl.appendChild(hdr);
+    state.members.forEach(m=>{
+      const share=q.shares.find(s=>s.memberId===m.id);if(!share)return;
+      const isSettled=share.settled||false;const isCashPaid=share.settledBy==='cash';
+      const row=el('div',{style:{display:'grid',gridTemplateColumns:'1fr auto auto',gap:'8px',padding:'7px 0',borderBottom:'1px solid var(--border)',alignItems:'center'}});
+      row.appendChild(el('div',{style:{fontSize:'13px',fontWeight:'500'}},[m.name]));
+      const sOn=isSettled&&!isCashPaid;
+      const sBtn=el('button',{style:{width:'72px',padding:'5px 4px',borderRadius:'var(--rsm)',border:'1px solid var(--border)',cursor:'pointer',fontSize:'12px',fontWeight:'500',fontFamily:'inherit',background:sOn?'var(--s-ok)':'var(--card)',color:sOn?'var(--c-ok)':'var(--muted)'}},[sOn?'\u2713 Settled':'Settle']);
+      sBtn.addEventListener('click',()=>{
+        if(isCashPaid){
+          upd(p=>({...p,qattahs:p.qattahs.map(x=>x.id===id?{...x,shares:x.shares.map(s=>s.memberId===m.id?{...s,settled:false,settledBy:null,cashSettlementId:null}:s)}:x),settlements:p.settlements.filter(s=>s.id!==share.cashSettlementId)}));
+        }else{
+          upd(p=>({...p,qattahs:p.qattahs.map(x=>x.id===id?{...x,shares:x.shares.map(s=>s.memberId===m.id?{...s,settled:!isSettled,settledBy:!isSettled?'expense':null}:s)}:x)}),(!isSettled?'marked ':'unmarked ')+m.name+' as settled in '+q.name);
+        }
+        modalEl&&(modalEl.remove(),modalEl=null);openPayModal('qattah',id);
+      });
+      row.appendChild(sBtn);
+      const hasPartial=(share.partialPaid||0)>0&&!isCashPaid&&!isSettled;
+      const cLbl=isCashPaid?'\u2714 Paid':hasPartial?fmt(share.partialPaid).replace('SAR ','')+'/'+fmt(share.amount).replace('SAR ',''):'Cash';
+      const cBtn=el('button',{style:{width:'72px',padding:'5px 4px',borderRadius:'var(--rsm)',border:'1px solid var(--border)',cursor:'pointer',fontSize:'11px',fontWeight:'500',fontFamily:'inherit',background:isCashPaid?'#fef3c7':hasPartial?'var(--s-warn)':'var(--card)',color:isCashPaid?'#92400e':hasPartial?'var(--c-warn)':'var(--muted)'}},[cLbl]);
+      cBtn.addEventListener('click',()=>{
+        if(isCashPaid){
+          upd(p=>({...p,qattahs:p.qattahs.map(x=>x.id===id?{...x,shares:x.shares.map(s=>s.memberId===m.id?{...s,settled:false,settledBy:null,cashSettlementId:null}:s)}:x),settlements:p.settlements.filter(s=>s.id!==share.cashSettlementId)}),'undid '+m.name+' cash payment for '+q.name);
+          modalEl&&(modalEl.remove(),modalEl=null);openPayModal('qattah',id);return;
+        }
+        const remaining=share.amount-(share.partialPaid||0);
+        const inp=prompt('Amount received from '+m.name+' (SAR).\nRemaining: '+remaining,String(remaining));
+        if(inp===null)return;
+        const amt=+inp;
+        if(!amt||amt<=0)return;
+        const sid=gid();
+        if(amt>=remaining){
+          // full: settle as cash
+          upd(p=>({...p,qattahs:p.qattahs.map(x=>x.id===id?{...x,shares:x.shares.map(s=>s.memberId===m.id?{...s,settled:true,settledBy:'cash',cashSettlementId:sid}:s)}:x),settlements:[...p.settlements,{id:sid,type:'pool_receive',memberId:m.id,amount:remaining,date:nowD(),note:q.name+' \u2014 Qattah cash payment'}]}),'recorded '+m.name+' cash payment for '+q.name+' ('+fmt(remaining)+')');
+        }else{
+          // partial
+          upd(p=>({...p,qattahs:p.qattahs.map(x=>x.id===id?{...x,shares:x.shares.map(s=>s.memberId===m.id?{...s,partialPaid:(s.partialPaid||0)+amt,partialIds:[...(s.partialIds||[]),sid]}:s)}:x),settlements:[...p.settlements,{id:sid,type:'pool_receive',memberId:m.id,amount:amt,date:nowD(),note:q.name+' \u2014 partial payment'}]}),'recorded '+m.name+' PARTIAL payment for '+q.name+' ('+fmt(amt)+' of '+fmt(share.amount)+')');
+        }
+        modalEl&&(modalEl.remove(),modalEl=null);openPayModal('qattah',id);
+      });
+      row.appendChild(cBtn);tbl.appendChild(row);
+    });
+    return tbl;
+  }
+  content.appendChild(buildTable());
+  content.appendChild(el('button',{class:'btn btn-p',style:{width:'100%',marginTop:'14px'},onclick:()=>{modalEl&&(modalEl.remove(),modalEl=null);}},['Done']));
+  showModal('Qattah: '+q.name,content);
+}
+
+// Monthly statement
+function openStatement(){
+  const ym=nowM();const rp=rFor(ym);const ms=rp?rp.amount6m/N/6:0;
+  const rc=rCnt(ym);
+  const monthExp=state.expenses.filter(e=>(e.month||(e.date||'').slice(0,7))===ym);
+  const expTotal=monthExp.reduce((s,e)=>s+e.amount,0);
+  const pool=qPool();const bal=calcBal();
+  const debtors=state.members.filter(m=>bal[m.id]<-0.5).sort((a,b)=>bal[a.id]-bal[b.id]);
+  const lines=[];
+  lines.push('\uD83D\uDCCB Alshather \u2014 '+mLbl(ym)+' Statement');
+  lines.push('');
+  if(rp){lines.push('\uD83C\uDFE0 Rent: '+rc.p+'/'+N+' paid ('+fmt(rc.p*ms)+' of '+fmt(N*ms)+')');}
+  lines.push('\uD83D\uDED2 Expenses this month: '+fmt(expTotal)+' ('+monthExp.length+' items)');
+  lines.push('\uD83D\uDCB0 Qattah pool balance: '+fmt(pool.bal));
+  if(debtors.length){lines.push('');lines.push('\u26A0 Outstanding:');debtors.forEach(m=>lines.push('  \u2022 '+m.name+': '+fmt(-bal[m.id])));}
+  else{lines.push('');lines.push('\u2713 Everyone is settled!');}
+  const txt=lines.join('\n');
+  const content=el('div');
+  const pre=el('div',{style:{background:'var(--sec)',borderRadius:'var(--rsm)',padding:'14px',fontSize:'13px',whiteSpace:'pre-wrap',fontFamily:'inherit',lineHeight:'1.8',marginBottom:'12px'}},[txt]);
+  content.appendChild(pre);
+  const cb=el('button',{class:'btn btn-p',style:{width:'100%'}},['\uD83D\uDCCB Copy for WhatsApp']);
+  cb.addEventListener('click',()=>{navigator.clipboard.writeText(txt).then(()=>{cb.textContent='\u2713 Copied!';setTimeout(()=>cb.textContent='\uD83D\uDCCB Copy for WhatsApp',2000);});});
+  content.appendChild(cb);
+  showModal('Monthly statement',content);
+}
+
+// Firebase setup
+function openSetupModal(){
+  let fbUrl=localStorage.getItem(LS_FB)||'';
+  let apiKey=localStorage.getItem('aca-fbkey')||'';
+  const errEl=el('div',{style:{color:'var(--c-danger)',fontSize:'13px',marginTop:'8px',display:'none',lineHeight:'1.6'}});
+  const ui=mki('url','https://your-project-default-rtdb.firebaseio.com',fbUrl,v=>fbUrl=v.trim());
+  const ki=mki('text','AIza... (Web API Key, optional but recommended)',apiKey,v=>apiKey=v.trim());ki.value=apiKey;
+  const cBtn=el('button',{class:'btn btn-p',style:{width:'100%',marginTop:'4px'}},['Connect and enable live sync']);
+  cBtn.addEventListener('click',async()=>{
+    errEl.style.display='none';const clean=fbUrl.replace(/\/$/,'');
+    if(!isValidFb(clean)){errEl.innerHTML='URL must start with https:// and end with .firebaseio.com or .firebasedatabase.app';errEl.style.display='block';return;}
+    cBtn.textContent='Connecting...';cBtn.disabled=true;
+    try{
+      // Store key first so fbAuth can use it during the test
+      FB_KEY=apiKey||null;
+      if(FB_KEY)localStorage.setItem('aca-fbkey',FB_KEY);else localStorage.removeItem('aca-fbkey');
+      fbToken=null;fbTokenExp=0;
+      const tok=await fbAuth();
+      const testUrl=clean+'/.json'+(tok?'?auth='+tok:'');
+      const r=await fetch(testUrl,{signal:AbortSignal.timeout(8000)});
+      if(r.status===401||r.status===403)throw new Error('auth');if(!r.ok)throw new Error();
+      DB_URL=clean;localStorage.setItem(LS_FB,clean);
+      history.replaceState(null,'',location.pathname+'#'+btoa(FB_KEY?JSON.stringify({u:clean,k:FB_KEY}):clean));
+      await fbWrite(state);fbSub();modalEl&&(modalEl.remove(),modalEl=null);render();
+    }catch(e){errEl.innerHTML=e.message==='auth'
+      ?'Permission denied. Either: (1) your rules require auth \u2014 paste your Web API Key above and make sure Anonymous sign-in is enabled in Firebase Authentication, or (2) set the rules to allow authenticated access.'
+      :'Could not connect. Check the Database URL (Firebase Console > Realtime Database > Data tab) and the API key (Project settings > General > Web API Key).';
+      errEl.style.display='block';cBtn.textContent='Connect and enable live sync';cBtn.disabled=false;}
+  });
+  showModal('Enable Live Sharing',el('div',[
+    el('div',{style:{background:'var(--s-info)',borderRadius:'var(--rsm)',padding:'14px',marginBottom:'16px'}},[
+      el('div',{style:{fontWeight:'500',color:'var(--c-info)',marginBottom:'8px'}},['Secure setup (recommended)']),
+      el('ol',{style:{paddingLeft:'18px',lineHeight:'2',fontSize:'13px',color:'var(--muted)'}},
+        ['Firebase Console > Build > Authentication > Get started > Sign-in method > enable Anonymous',
+         'Project settings (gear icon) > General > copy Web API Key',
+         'Realtime Database > Rules > set read/write to: auth != null > Publish',
+         'Paste Database URL and API Key below and click Connect'].map(s=>el('li',{},[s])))
+    ]),fw('Firebase Database URL',ui),fw('Web API Key',ki),cBtn,errEl
+  ]));
+}
+
+// Header
+function renderHeader(){
+  const TABS=[{id:'dashboard',l:'Dashboard'},{id:'members',l:'Members'},{id:'rent',l:'Rent'},{id:'expenses',l:'Expenses'},{id:'qattah',l:'Qattah'},{id:'balances',l:'Balances'},{id:'activity',l:'Log'}];
+  const tr=state.treasurer?state.members.find(m=>m.id===state.treasurer):null;
+  const h=el('div',{style:{background:'var(--card)',borderBottom:'1px solid var(--border)',position:'sticky',top:'0',zIndex:'100'}});
+  const tb=el('div',{style:{padding:'12px 20px',display:'flex',justifyContent:'space-between',alignItems:'center',borderBottom:'1px solid var(--border)'}});
+  tb.appendChild(el('div',[el('div',{style:{fontSize:'16px',fontWeight:'500'}},['\uD83C\uDFE0 Alshather Control App']),el('div',{style:{fontSize:'12px',color:'var(--muted)',marginTop:'2px'}},[`16 members \u00B7 SAR${tr?` \u00B7 \uD83D\uDC51 ${tr.name}`:''}`])]));
+  const rgt=el('div',{style:{display:'flex',alignItems:'center',gap:'8px'}});
+  const cp=el('div',{title:'Connection settings',style:{display:'flex',alignItems:'center',gap:'5px',fontSize:'12px',padding:'4px 10px',borderRadius:'99px',background:'var(--sec)',cursor:'pointer'}});cp.addEventListener('click',openSetupModal);
+  cp.appendChild(el('span',{id:'cdot',class:'dot',style:{background:DB_URL?(fbOnline?'#22c55e':'#f59e0b'):'#9ca3af'}}));
+  cp.appendChild(el('span',{id:'clbl'},[DB_URL?(fbOnline?'Live':'Connecting...'):'Local only']));
+  rgt.appendChild(cp);
+  const lkBtn=el('button',{class:'btn btn-g btn-sm'},[isAdmin?'\uD83D\uDD13 Admin':'\uD83D\uDD12 Locked']);
+  lkBtn.addEventListener('click',()=>{if(isAdmin)setAdmin(false);else openUnlockModal();});
+  rgt.appendChild(lkBtn);
+  if(DB_URL){const sb=el('button',{class:'btn btn-g btn-sm'},['\uD83D\uDD17 Share link']);sb.addEventListener('click',()=>{const l=getShareURL();if(l&&navigator.clipboard){navigator.clipboard.writeText(l).then(()=>{sb.textContent='\u2713 Copied!';setTimeout(()=>sb.textContent='\uD83D\uDD17 Share link',2500);});}});rgt.appendChild(sb);}
+  else{const sb=el('button',{class:'btn btn-p btn-sm'},['Enable live sharing']);sb.addEventListener('click',openSetupModal);rgt.appendChild(sb);}
+  const eBtn=el('button',{class:'btn btn-g btn-sm'},['\u2193 Export']);eBtn.addEventListener('click',()=>{const blob=new Blob([JSON.stringify(state,null,2)],{type:'application/json'});const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download='alshather.json';document.body.appendChild(a);a.click();document.body.removeChild(a);setTimeout(()=>URL.revokeObjectURL(url),1e3);});
+  const iLbl=el('label',{class:'btn btn-g btn-sm',style:{cursor:'pointer'}},['\u2191 Import']);
+  const iInp=el('input',{type:'file',accept:'.json',style:{display:'none'}});
+  iInp.addEventListener('change',e=>{const f=e.target.files[0];if(!f)return;const r=new FileReader();r.onload=ev=>{try{const d=JSON.parse(ev.target.result);if(d.members){state=migrate(d);lsS();if(DB_URL)fbWrite(state);render();}}catch{}};r.readAsText(f);e.target.value='';});
+  iLbl.appendChild(iInp);rgt.appendChild(eBtn);rgt.appendChild(iLbl);
+  tb.appendChild(rgt);h.appendChild(tb);
+  const tabBar=el('div',{style:{display:'flex',overflowX:'auto',padding:'0 8px'}});
+  TABS.forEach(t=>{const b=el('button',{class:'tab'+(tab===t.id?' on':'')},[t.l]);b.addEventListener('click',()=>{tab=t.id;modalEl&&(modalEl.remove(),modalEl=null);render();});tabBar.appendChild(b);});
+  h.appendChild(tabBar);return h;
+}
+
+// Dashboard
+function renderDashboard(){
+  const ym=nowM(),rp=rFor(ym);const rentPP=rp?rp.amount6m/6/N:0;
+  const expPP=state.expenses.filter(e=>e.type==='monthly').reduce((s,e)=>s+e.amount,0)/N;
+  const bal=calcBal(),pool=qPool(),tr=state.treasurer?state.members.find(m=>m.id===state.treasurer):null;
+  const recent=[...state.expenses].sort((a,b)=>(b.date||b.month||'').localeCompare(a.date||a.month||'')).slice(0,5);
+  const debtors=[...state.members].filter(m=>bal[m.id]<-0.5).sort((a,b)=>bal[a.id]-bal[b.id]).slice(0,3);
+  const rPay=rp?rCnt(ym):{p:0};
+  const w=el('div',{style:{padding:'20px',maxWidth:'900px',margin:'0 auto'}});
+  if(!DB_URL)w.appendChild(el('div',{style:{background:'var(--s-warn)',border:'1px solid var(--c-warn)33',borderRadius:'var(--rsm)',padding:'12px 16px',marginBottom:'14px',fontSize:'13px',color:'var(--c-warn)',display:'flex',justifyContent:'space-between',alignItems:'center'}},
+    ['\uD83D\uDCE1 Running locally',el('button',{class:'btn btn-p btn-sm',onclick:openSetupModal},['Enable sharing'])]));
+  if(rp&&rPay.p<N)w.appendChild(el('div',{style:{background:'var(--s-warn)',border:'1px solid var(--c-warn)33',borderRadius:'var(--rsm)',padding:'12px',marginBottom:'14px',fontSize:'13px',color:'var(--c-warn)'}},
+    [`\u26A0 ${N-rPay.p} member${N-rPay.p>1?'s':''} have not paid rent for ${mLbl(ym)}`]));
+  if(!isAdmin)w.appendChild(el('div',{style:{background:'var(--sec)',borderRadius:'var(--rsm)',padding:'10px 16px',marginBottom:'14px',fontSize:'13px',color:'var(--muted)',display:'flex',justifyContent:'space-between',alignItems:'center'}},
+    ['\uD83D\uDC41 Observer mode',el('button',{class:'btn btn-g btn-sm',onclick:openUnlockModal},['\uD83D\uDD12 Unlock'])]));
+  const cg=el('div',{style:{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:'12px',marginBottom:'20px'}});
+  const _crp=state.rentPeriods.find(r=>nowM()>=r.startMonth&&nowM()<=addM(r.startMonth,5));
+  const rentCollectedM=_crp?rCnt(nowM()).p*(_crp.amount6m/N/6):0;
+  const rentDueM=_crp?N*(_crp.amount6m/N/6):0;
+  [['Rent / person',rentPP,'var(--c-info)','var(--s-info)'],['Expenses / person',expPP,'#0891b2','var(--s-info)'],['Total due',rentPP+expPP,'var(--c-ok)','var(--s-ok)'],['Qattah pool',pool.bal,pool.bal>=0?'var(--c-purple)':'var(--c-danger)',pool.bal>=0?'var(--s-purple)':'var(--s-danger)']].forEach(([l,v,c,bg])=>{
+    const cd=el('div',{style:{background:bg,borderRadius:'var(--radius)',padding:'14px',border:`1px solid ${bg}`}});
+    cd.appendChild(el('div',{style:{fontSize:'11px',fontWeight:'500',color:'var(--muted)',textTransform:'uppercase',marginBottom:'6px'}},[l]));
+    cd.appendChild(el('div',{style:{fontSize:'17px',fontWeight:'500',color:c}},[fmt(v)]));
+    if(l==='Rent / person'&&_crp)cd.appendChild(el('div',{style:{fontSize:'11px',color:'var(--muted)',marginTop:'4px'}},[fmt(rentCollectedM)+' / '+fmt(rentDueM)+' this month']));
+    cg.appendChild(cd);
+  });
+  w.appendChild(cg);
+  const poolAlert=getPoolAlert();
+  if(poolAlert)w.appendChild(el('div',{style:{background:'var(--s-danger)',border:'1px solid var(--c-danger)33',borderRadius:'var(--rsm)',padding:'12px 16px',marginBottom:'14px',fontSize:'13px',color:'var(--c-danger)',display:'flex',justifyContent:'space-between',alignItems:'center',gap:'12px'}},
+    [el('span',{},['⚠ Pool short by '+fmt(poolAlert.short)+' — Suggested new Qattah: '+fmt(poolAlert.perP)+'/person']),el('button',{class:'btn btn-sm btn-p',onclick:()=>{tab='qattah';render();}},['Create Qattah'])]));
+  const rentAlert=getRentAlert();
+  if(rentAlert){
+    const ra=el('div',{style:{background:'var(--s-warn)',border:'1px solid var(--c-warn)33',borderRadius:'var(--radius)',padding:'16px 20px',marginBottom:'14px'}});
+    ra.appendChild(el('div',{style:{fontWeight:'500',color:'var(--c-warn)',marginBottom:'10px',fontSize:'13px'}},['⏰ Rent period ending '+mLbl(rentAlert.lastM)]));
+    rentAlert.months.forEach(mk=>{
+      const rc2=rCnt(mk);const paidIds=Object.keys(state.rentPayments[mk]||{});
+      const unpaid=state.members.filter(m=>!paidIds.includes(m.id));
+      const row=el('div',{style:{marginBottom:'10px'}});
+      row.appendChild(el('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'4px'}},[el('span',{style:{fontWeight:'500',fontSize:'13px'}},[mLbl(mk)]),el('span',{class:'badge '+(rc2.p===N?'b-ok':rc2.p>0?'b-warn':'b-danger')},[rc2.p+'/'+N+' paid'])]));
+      if(unpaid.length>0){const ud=el('div',{style:{fontSize:'11px',color:'var(--c-warn)',lineHeight:'1.8'}});ud.textContent='Unpaid: '+unpaid.map(m=>m.name).join(', ');row.appendChild(ud);}
+      ra.appendChild(row);
+    });
+    if(isAdmin){const sb2=el('button',{class:'btn btn-sm btn-p',style:{marginTop:'4px'}},['+ Set up next rent period']);sb2.addEventListener('click',()=>{tab='rent';render();});ra.appendChild(sb2);}
+    w.appendChild(ra);
+  }
+  if(state.gathering&&state.gathering.groups){
+    const gcard=el('div',{class:'card',style:{marginBottom:'20px'}});
+    gcard.appendChild(el('div',{style:{fontWeight:'500',fontSize:'15px',marginBottom:'14px'}},['Weekly Gathering \u00B7 Every Tuesday']));
+    const glist=getGatherings();
+    glist.forEach((g,i)=>{
+      const first=i===0;const dlbl=g.date.toLocaleDateString('en',{weekday:'short',month:'long',day:'numeric'});
+      const row=el('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'12px 0',borderBottom:first?'1px solid var(--border)':'none'}});
+      const lft=el('div');
+      lft.appendChild(el('div',{style:{fontSize:'11px',color:'var(--muted)',textTransform:'uppercase',fontWeight:'500',marginBottom:'3px'}},[first?'NEXT GATHERING':'FOLLOWING WEEK']));
+      lft.appendChild(el('div',{style:{fontSize:'12px',color:'var(--muted)',marginBottom:'4px'}},[dlbl]));
+      if(g.skipped){const nr=el('div',{style:{display:'flex',alignItems:'center',gap:'8px'}});nr.appendChild(el('span',{style:{fontSize:first?'15px':'13px',fontWeight:'500',textDecoration:'line-through',color:'var(--muted)'}},[g.group]));nr.appendChild(el('span',{class:'badge b-danger'},['Cancelled']));lft.appendChild(nr);}
+      else lft.appendChild(el('div',{style:{fontSize:first?'16px':'14px',fontWeight:'500'}},[g.group]));
+      const rgt=el('div',{style:{flexShrink:'0'}});
+      if(first&&isAdmin){const sb=el('button',{class:'btn btn-sm '+(g.skipped?'btn-p':'btn-g')},[g.skipped?'Un-skip':'Skip this week']);sb.addEventListener('click',()=>upd(p=>{const sk=p.gathering.skipped||[];return{...p,gathering:{...p.gathering,skipped:g.skipped?sk.filter(x=>x!==g.ds):[...sk,g.ds]}};}));rgt.style.display='flex';rgt.style.gap='6px';
+        const swb=el('button',{class:'btn btn-sm btn-g'},['\u21C4 Swap']);
+        swb.addEventListener('click',()=>{
+          const gg=state.gathering;const curIdx=gGroupIdx(g.ds);
+          const opts=gg.groups.map((nm,i)=>[String(i),nm+(i===curIdx?' (current)':'')]);
+          let pick=String(curIdx);
+          const sel2=mks(opts,v=>pick=v);sel2.value=pick;
+          const ok=el('button',{class:'btn btn-p',style:{width:'100%',marginTop:'10px'}},['Confirm swap']);
+          ok.addEventListener('click',()=>{
+            const idxN=+pick;
+            upd(p=>({...p,gathering:{...p.gathering,swaps:{...(p.gathering.swaps||{}),[g.ds]:idxN}}}),'swapped gathering '+g.ds+' to '+gg.groups[idxN]);
+            modalEl&&(modalEl.remove(),modalEl=null);
+          });
+          showModal('Swap gathering pair \u00b7 '+g.ds,el('div',[fw('Hosting pair for this week',sel2),ok]));
+        });
+        rgt.appendChild(swb);rgt.appendChild(sb);}
+      row.appendChild(lft);row.appendChild(rgt);gcard.appendChild(row);
+    });
+    w.appendChild(gcard);
+  }
+  // ── Spending chart: last 6 months ──
+  {
+    const months=[];for(let i=5;i>=0;i--){const d=new Date();d.setMonth(d.getMonth()-i);months.push(d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0'));}
+    const totals=months.map(mk=>state.expenses.filter(e=>(e.month||(e.date||'').slice(0,7))===mk).reduce((s,e)=>s+e.amount,0));
+    const maxV=Math.max(...totals,1);
+    if(totals.some(v=>v>0)){
+      const cc=el('div',{class:'card',style:{marginBottom:'20px'}});
+      const chdr=el('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'14px'}});
+      chdr.appendChild(el('div',{style:{fontWeight:'500',fontSize:'15px'}},['Spending \u00b7 last 6 months']));
+      const stBtn=el('button',{class:'btn btn-g btn-sm'},['\uD83D\uDCC4 Statement']);
+      stBtn.addEventListener('click',openStatement);
+      chdr.appendChild(stBtn);cc.appendChild(chdr);
+      const bars=el('div',{style:{display:'flex',alignItems:'flex-end',gap:'8px',height:'110px'}});
+      months.forEach((mk,i)=>{
+        const col=el('div',{style:{flex:'1',display:'flex',flexDirection:'column',alignItems:'center',gap:'4px',height:'100%',justifyContent:'flex-end'}});
+        if(totals[i]>0)col.appendChild(el('div',{style:{fontSize:'10px',color:'var(--muted)'}},[Math.round(totals[i]/1000*10)/10+'k']));
+        col.appendChild(el('div',{style:{width:'100%',maxWidth:'42px',height:Math.max(totals[i]/maxV*70,totals[i]>0?4:1)+'px',background:mk===nowM()?'var(--c-info)':'var(--border)',borderRadius:'4px 4px 0 0'}}));
+        col.appendChild(el('div',{style:{fontSize:'10px',color:'var(--muted)'}},[mLbl(mk).split(' ')[0].slice(0,3)]));
+        bars.appendChild(col);
+      });
+      cc.appendChild(bars);w.appendChild(cc);
+    }
+  }
+  const g2=el('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'16px'}});
+  const rc=el('div',{class:'card'});rc.appendChild(el('div',{style:{fontWeight:'500',marginBottom:'14px',fontSize:'15px'}},['Recent expenses']));
+  if(!recent.length)rc.appendChild(el('div',{style:{color:'var(--muted)',fontSize:'13px'}},['No expenses yet.']));
+  else recent.forEach(e=>{
+    const pc=pCnt(e),py=state.members.find(m=>m.id===e.paidBy);
+    const row=el('div',{style:{display:'flex',justifyContent:'space-between',padding:'8px 0',borderBottom:'1px solid var(--border)',alignItems:'flex-start',gap:'8px'}});
+    const lft=el('div',{style:{flex:'1'}});
+    lft.appendChild(el('div',{style:{fontSize:'13px',fontWeight:'500'}},[e.name]));
+    lft.appendChild(el('div',{style:{fontSize:'11px',color:'var(--muted)'}},[py?`${py.name} \u00B7 ${e.month?mLbl(e.month):e.date}`:`Pool \u00B7 ${e.month?mLbl(e.month):e.date}`]));
+    const rgt2=el('div',{style:{display:'flex',flexDirection:'column',alignItems:'flex-end',gap:'4px',flexShrink:'0'}});
+    rgt2.appendChild(el('div',{style:{fontSize:'13px',fontWeight:'500'}},[fmt(e.amount)]));
+    const fromPool=!e.paidBy,poolSt=e.poolSettled&&!fromPool;
+    const dCls=fromPool?'b-purple':poolSt?'b-ok':(pc.p===pc.t?'b-ok':pc.p>1?'b-warn':'b-danger');
+    const dTxt=fromPool?'Pool paid':poolSt?'\u2713 Pool settled':`${pc.p}/${pc.t} paid`;
+    const badge=el('button',{class:`badge ${dCls}`},[dTxt]);
+    if(!fromPool&&!poolSt)badge.addEventListener('click',()=>openPayModal('expense',e.id));
+    rgt2.appendChild(badge);row.appendChild(lft);row.appendChild(rgt2);rc.appendChild(row);
+  });
+  g2.appendChild(rc);
+  const dc=el('div',{class:'card'});
+  if(tr){const tb2=el('div',{style:{background:'var(--sec)',borderRadius:'var(--rsm)',padding:'12px',marginBottom:'14px',display:'flex',alignItems:'center',gap:'10px'}});tb2.appendChild(el('div',{style:{width:'32px',height:'32px',borderRadius:'50%',background:'#f59e0b',color:'#fff',display:'flex',alignItems:'center',justifyContent:'center',fontSize:'14px',fontWeight:'600',flexShrink:'0'}},[tr.name.charAt(0).toUpperCase()]));tb2.appendChild(el('div',[el('div',{style:{fontSize:'11px',fontWeight:'500',color:'var(--muted)',textTransform:'uppercase'}},['\uD83D\uDC51 Treasurer']),el('div',{style:{fontSize:'13px',fontWeight:'500'}},[tr.name])]));dc.appendChild(tb2);}
+  dc.appendChild(el('div',{style:{fontWeight:'500',marginBottom:'12px',fontSize:'15px'}},['Owes the most']));
+  if(!debtors.length)dc.appendChild(el('div',{style:{color:'var(--c-ok)',fontSize:'13px'}},['\u2713 All settled!']));
+  else debtors.forEach(m=>{const row=el('div',{style:{display:'flex',justifyContent:'space-between',padding:'8px 0',borderBottom:'1px solid var(--border)'}});row.appendChild(el('div',{style:{fontSize:'13px',fontWeight:'500'}},[m.name]));row.appendChild(el('div',{style:{fontSize:'13px',fontWeight:'500',color:'var(--c-danger)'}},[fmt(-bal[m.id])]));dc.appendChild(row);});
+  g2.appendChild(dc);w.appendChild(g2);return w;
+}
+// Members
+function renderMembers(){
+  const names=[...state.members.map(m=>m.name)];
+  const w=el('div',{style:{padding:'20px',maxWidth:'860px',margin:'0 auto'}});
+  const c=el('div',{class:'card'});
+  const hdr=el('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'20px'}});
+  hdr.appendChild(el('div',[el('div',{style:{fontWeight:'500',fontSize:'16px'}},['Member names']),el('div',{style:{fontSize:'13px',color:'var(--muted)',marginTop:'2px'}},['\uD83D\uDC51 = set as treasurer'])]));
+  if(isAdmin){const sb=el('button',{class:'btn btn-p'},['Save names']);sb.addEventListener('click',()=>{upd(p=>({...p,members:p.members.map((m,i)=>({...m,name:names[i]?.trim()||`Person ${i+1}`}))}));sb.textContent='Saved \u2713';setTimeout(()=>sb.textContent='Save names',2500);});hdr.appendChild(sb);}
+  c.appendChild(hdr);
+  const grid=el('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'10px'}});
+  state.members.forEach((m,i)=>{const isTr=state.treasurer===m.id;const row=el('div',{style:{display:'flex',alignItems:'center',gap:'8px'}});row.appendChild(el('span',{style:{fontSize:'12px',color:'var(--muted)',width:'22px',textAlign:'right',flexShrink:'0'}},[`${i+1}.`]));const ni=document.createElement('input');ni.value=m.name;ni.placeholder=`Person ${i+1}`;ni.disabled=!isAdmin;ni.addEventListener('input',e=>names[i]=e.target.value);const cr=el('button',{title:isTr?'Remove as treasurer':'Set as treasurer',style:{background:isTr?'#f59e0b':'none',border:isTr?'none':'1px solid var(--border)',borderRadius:'var(--rsm)',padding:'5px',cursor:isAdmin?'pointer':'default',fontSize:'14px',flexShrink:'0',width:'32px',height:'32px',display:'flex',alignItems:'center',justifyContent:'center',opacity:isAdmin?1:.5}},['\uD83D\uDC51']);if(isAdmin)cr.addEventListener('click',()=>upd(p=>({...p,treasurer:p.treasurer===m.id?null:m.id})));row.appendChild(ni);row.appendChild(cr);grid.appendChild(row);});
+  c.appendChild(grid);w.appendChild(c);
+  const ac=el('div',{class:'card',style:{marginTop:'16px'}});
+  ac.appendChild(el('div',{style:{fontWeight:'500',fontSize:'15px',marginBottom:'4px'}},['Admin access']));
+  ac.appendChild(el('div',{style:{fontSize:'13px',color:'var(--muted)',marginBottom:'14px'}},[state.adminHash?'Password is set. Only admins can edit.':'No password set - everyone can edit.']));
+  if(isAdmin){const sb2=el('button',{class:'btn btn-p'},[state.adminHash?'Change password':'Set admin password']);sb2.addEventListener('click',openSetPwModal);ac.appendChild(sb2);if(state.adminHash){const cb=el('button',{class:'btn btn-g',style:{marginLeft:'8px'}},['Remove password']);cb.addEventListener('click',()=>{if(confirm('Remove the admin password? Everyone will be able to edit.'))upd(p=>({...p,adminHash:null}));});ac.appendChild(cb);}}
+  else{const ub=el('button',{class:'btn btn-p'},['\uD83D\uDD12 Unlock to manage']);ub.addEventListener('click',openUnlockModal);ac.appendChild(ub);}
+  w.appendChild(ac);return w;
+}
+
+// Rent
+function renderRent(){
+  const w=el('div',{style:{padding:'20px',maxWidth:'860px',margin:'0 auto'}});
+  const cur=rFor(nowM());
+  if(cur){const b=el('div',{style:{background:'var(--s-info)',border:'1px solid var(--c-info)22',borderRadius:'var(--radius)',padding:'22px',marginBottom:'20px'}});
+    b.appendChild(el('div',{style:{fontSize:'11px',fontWeight:'500',color:'var(--c-info)',marginBottom:'6px',textTransform:'uppercase'}},['Active rent period']));
+    b.appendChild(el('div',{style:{fontSize:'26px',fontWeight:'500',color:'var(--c-info)'}},[fmt(cur.amount6m)]));
+    b.appendChild(el('div',{style:{fontSize:'13px',color:'var(--muted)',marginTop:'4px'}},[mLbl(cur.startMonth)+' → '+mLbl(addM(cur.startMonth,5))]));
+    const sub=el('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'12px',marginTop:'16px'}});
+    [['Per person (6 months)',cur.amount6m/N],['Per person / month',cur.amount6m/N/6]].forEach(([l,v])=>{const box=el('div',{style:{background:'var(--card)',borderRadius:'var(--rsm)',padding:'14px'}});box.appendChild(el('div',{style:{fontSize:'11px',color:'var(--muted)',fontWeight:'500',marginBottom:'6px',textTransform:'uppercase'}},[l]));box.appendChild(el('div',{style:{fontSize:'18px',fontWeight:'500',color:'var(--c-info)'}},[fmt(v)]));sub.appendChild(box);});
+    b.appendChild(sub);
+    // Collected to date bar
+    {const monthlyPP=cur.amount6m/N/6;let colAmt=0,dueAmt=0;
+    for(let i=0;i<6;i++){const mk=addM(cur.startMonth,i);if(mk>nowM())break;const pc=rCnt(mk);colAmt+=pc.p*monthlyPP;dueAmt+=N*monthlyPP;}
+    const collBar=el('div',{style:{marginTop:'16px',borderTop:'1px solid var(--border)',paddingTop:'16px',marginBottom:'4px'}});
+    const collHdr=el('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'8px'}});
+    collHdr.appendChild(el('div',{style:{fontSize:'12px',fontWeight:'500',color:'var(--muted)',textTransform:'uppercase'}},['Collected to date']));
+    collHdr.appendChild(el('div',{style:{fontSize:'14px',fontWeight:'500',color:'var(--c-ok)'}},[fmt(colAmt)+' / '+fmt(dueAmt)]));
+    collBar.appendChild(collHdr);
+    const pct=dueAmt>0?Math.min(colAmt/dueAmt,1):0;
+    const barWrap=el('div',{style:{height:'6px',background:'var(--border)',borderRadius:'99px',overflow:'hidden',marginBottom:'14px'}});
+    barWrap.appendChild(el('div',{style:{height:'100%',width:(pct*100)+'%',background:'var(--c-ok)',borderRadius:'99px'}}));
+    collBar.appendChild(barWrap);b.appendChild(collBar);}
+    // Monthly status
+    const ps=el('div');ps.appendChild(el('div',{style:{fontSize:'12px',fontWeight:'500',color:'var(--muted)',marginBottom:'10px',textTransform:'uppercase'}},['Monthly payment status']));
+    for(let i=0;i<6;i++){const mk=addM(cur.startMonth,i),pc=rCnt(mk);const monthlyAmt=cur.amount6m/N/6;
+      const row=el('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'9px 0',borderBottom:i<5?'1px solid var(--border)':'none'}});
+      row.appendChild(el('div',{},[el('div',{style:{fontSize:'13px',fontWeight:'500'}},[mLbl(mk)]),el('div',{style:{fontSize:'11px',color:'var(--muted)',marginTop:'2px'}},[fmt(pc.p*monthlyAmt)+' collected of '+fmt(N*monthlyAmt)])]));
+      const badge=el('button',{class:`badge ${pc.p===N?'b-ok':pc.p>0?'b-warn':'b-danger'}`},[`${pc.p}/${N} paid`]);
+      badge.addEventListener('click',()=>openPayModal('rent',mk));row.appendChild(badge);ps.appendChild(row);}
+    b.appendChild(ps);w.appendChild(b);}
+  const tRow=el('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'16px'}});
+  tRow.appendChild(el('div',{style:{fontWeight:'500'}},['All rent periods']));
+  if(isAdmin){const ab=el('button',{class:'btn btn-p'},['+ Add period']);ab.addEventListener('click',()=>{let f={a:'',m:nowM(),n:''};const prev=el('div',{style:{display:'none',background:'var(--s-info)',borderRadius:'var(--rsm)',padding:'10px',marginBottom:'12px',fontSize:'13px',color:'var(--c-info)'}});const ai=mki('number','e.g. 48000','',v=>{f.a=v;const x=+v;prev.style.display=x>0?'block':'none';if(x>0)prev.textContent=`Monthly per person: ${fmt(x/N/6)}`;});const mi=mki('month','',f.m,v=>f.m=v);mi.value=f.m;const ni=mki('text','Note (optional)','',v=>f.n=v);const btn=el('button',{class:'btn btn-p',style:{width:'100%'}},['Add rent period']);btn.addEventListener('click',()=>{if(!f.a||+f.a<=0)return;upd(p=>({...p,rentPeriods:[...p.rentPeriods,{id:gid(),amount6m:+f.a,startMonth:f.m,note:f.n}]}));modalEl&&(modalEl.remove(),modalEl=null);});showModal('Add rent period',el('div',[fw('Total 6-month rent (SAR)',ai),fw('Start month',mi),fw('Note (optional)',ni),prev,btn]));});tRow.appendChild(ab);}
+  w.appendChild(tRow);
+  const sorted=[...state.rentPeriods].sort((a,b)=>b.startMonth.localeCompare(a.startMonth));
+  if(!sorted.length)w.appendChild(el('div',{style:{color:'var(--muted)',fontSize:'13px'}},['No rent periods yet.']));
+  sorted.forEach(rp=>{const c=el('div',{class:'card',style:{marginBottom:'12px',display:'flex',justifyContent:'space-between',alignItems:'center'}});const lft=el('div',[el('div',{style:{fontWeight:'500'}},[fmt(rp.amount6m)]),el('div',{style:{fontSize:'13px',color:'var(--muted)'}},[mLbl(rp.startMonth)+' → '+mLbl(addM(rp.startMonth,5))])]);if(rp.note)lft.appendChild(el('div',{style:{fontSize:'12px',color:'var(--muted)'}},[rp.note]));const rgt=el('div',{style:{display:'flex',alignItems:'center',gap:'16px'}});const rv=el('div',{style:{textAlign:'right'}});rv.appendChild(el('div',{style:{fontSize:'11px',color:'var(--muted)'}},['Monthly / person']));rv.appendChild(el('div',{style:{fontSize:'16px',fontWeight:'500',color:'var(--c-info)'}},[fmt(rp.amount6m/N/6)]));rgt.appendChild(rv);if(isAdmin){rgt.appendChild(ib(()=>openEditRent(rp.id),'<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>','Edit'));rgt.appendChild(ib(()=>upd(p=>({...p,rentPeriods:p.rentPeriods.filter(r=>r.id!==rp.id)})),TRASH));}c.appendChild(lft);c.appendChild(rgt);w.appendChild(c);});
+  return w;
+}
+
+// Expenses
+function renderExpenses(){
+  const w=el('div',{style:{padding:'20px',maxWidth:'860px',margin:'0 auto'}});
+  const tRow=el('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'20px'}});
+  const t2=el('div',{style:{display:'flex',gap:'8px'}});
+  ['monthly','oneoff'].forEach(v=>{const b=el('button',{class:'btn '+(expView===v?'btn-p':'btn-g')},[v==='monthly'?'Monthly recurring':'One-off purchases']);b.addEventListener('click',()=>{expView=v;render();});t2.appendChild(b);});
+  tRow.appendChild(t2);
+  if(isAdmin){const ab=el('button',{class:'btn btn-p'},['+ Add']);ab.addEventListener('click',()=>{
+    const v=expView;let f={name:'',amount:'',month:nowM(),date:nowD(),paidBy:'',note:''};
+    const prev=el('div',{style:{display:'none',background:'var(--s-info)',borderRadius:'var(--rsm)',padding:'10px',marginBottom:'12px',fontSize:'13px',color:'var(--c-info)'}});
+    const ni=mki('text','e.g. Cleaning, Internet...','',v2=>f.name=v2);
+    const ai=mki('number','0.00','',v2=>{f.amount=v2;const x=+v2;prev.style.display=x>0?'block':'none';if(x>0)prev.textContent=`Each person share: ${fmt(x/N)}`;});
+    const di=mki(v==='monthly'?'month':'date','',v==='monthly'?f.month:f.date,v2=>{v==='monthly'?f.month=v2:f.date=v2;});di.value=v==='monthly'?f.month:f.date;
+    const payerSection=el('div',{style:{marginBottom:'14px'}});
+    payerSection.appendChild(el('div',{style:{fontSize:'12px',fontWeight:'500',color:'var(--muted)',marginBottom:'8px',textTransform:'uppercase',letterSpacing:'.4px'}},['Who paid?']));
+    const toggleRow=el('div',{style:{display:'flex',gap:'8px',marginBottom:'10px'}});
+    const btnPool=el('button',{class:'btn btn-p btn-sm'},['Paid by Pool']);
+    const btnMember=el('button',{class:'btn btn-g btn-sm'},['Member paid']);
+    const memberDropWrap=el('div',{style:{display:'none'}});
+    const mOpts=[['','-- Select member --'],...state.members.map(m=>[m.id,m.name])];
+    memberDropWrap.appendChild(mks(mOpts,v2=>f.paidBy=v2));
+    btnPool.addEventListener('click',()=>{f.paidBy='';btnPool.className='btn btn-p btn-sm';btnMember.className='btn btn-g btn-sm';memberDropWrap.style.display='none';});
+    btnMember.addEventListener('click',()=>{btnMember.className='btn btn-p btn-sm';btnPool.className='btn btn-g btn-sm';memberDropWrap.style.display='block';});
+    toggleRow.appendChild(btnPool);toggleRow.appendChild(btnMember);payerSection.appendChild(toggleRow);payerSection.appendChild(memberDropWrap);
+    const xni=mki('text','Note (optional)...','',v2=>f.note=v2);
+    let recWrap=null;
+    if(v==='monthly'){
+      f.recurring=false;
+      recWrap=el('label',{style:{display:'flex',alignItems:'center',gap:'8px',fontSize:'13px',marginBottom:'14px',cursor:'pointer'}});
+      const cb=el('input',{type:'checkbox'});cb.addEventListener('change',()=>f.recurring=cb.checked);
+      recWrap.appendChild(cb);recWrap.appendChild(el('span',{},['\u21BB Repeat automatically every month']));
+    }
+    const btn=el('button',{class:'btn btn-p',style:{width:'100%'}},['Add expense']);
+    btn.addEventListener('click',()=>{
+      if(!f.name.trim()||!f.amount||+f.amount<=0)return;
+      upd(p=>{let ns={...p,expenses:[...p.expenses,{id:gid(),type:v,name:f.name.trim(),amount:+f.amount,paidBy:f.paidBy||null,paidMembers:f.paidBy?[f.paidBy]:[],note:f.note,...(v==='monthly'?{month:f.month,recurring:!!f.recurring,recurringId:f.recurring?gid():null}:{date:f.date}),poolSettled:false}]};
+        if(f.paidBy){const uQ=ns.qattahs.reduce((sm,q)=>{const sh=q.shares.find(s=>s.memberId===f.paidBy);return sm+(sh&&!sh.settled?sh.amount:0);},0);if(+f.amount>=uQ&&uQ>0)ns=autoSettleQattah(ns,f.paidBy,'expense');}return ns;},'added expense: '+f.name.trim()+' ('+fmt(+f.amount)+')');
+      modalEl&&(modalEl.remove(),modalEl=null);
+    });
+    showModal(`Add ${v==='monthly'?'monthly':'one-off'} expense`,el('div',[fw('Name',ni),fw('Amount (SAR)',ai),fw(v==='monthly'?'Month':'Date',di),payerSection,fw('Note (optional)',xni),recWrap,prev,btn].filter(Boolean)));
+  });tRow.appendChild(ab);}
+  w.appendChild(tRow);
+  const list=state.expenses.filter(e=>e.type===expView).sort((a,b)=>(b.date||b.month||'').localeCompare(a.date||a.month||''));
+  if(!list.length)w.appendChild(el('div',{class:'card',style:{color:'var(--muted)',fontSize:'13px'}},[expView==='monthly'?'No monthly expenses yet.':'No one-off purchases yet.']));
+  list.forEach(e=>{
+    const pc=pCnt(e),py=state.members.find(m=>m.id===e.paidBy),fromPool=!e.paidBy;
+    const c=el('div',{class:'card',style:{marginBottom:'10px'}});
+    const row=el('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:'12px'}});
+    const lft=el('div',{style:{flex:'1'}});
+    const nameRow=el('div',{style:{fontWeight:'500',display:'flex',alignItems:'center',gap:'6px',flexWrap:'wrap'}});
+    nameRow.appendChild(document.createTextNode(e.name));
+    if(e.recurring)nameRow.appendChild(el('span',{class:'pill',style:{background:'var(--s-info)',color:'var(--c-info)'}},['\u21BB Monthly']));
+    if(fromPool)nameRow.appendChild(el('span',{class:'pill',style:{background:'var(--s-purple)',color:'var(--c-purple)'}},['Pool Paid']));
+    if(e.poolSettled&&!fromPool)nameRow.appendChild(el('span',{class:'pill',style:{background:'var(--s-ok)',color:'var(--c-ok)'}},['Pool Settled']));
+    lft.appendChild(nameRow);
+    lft.appendChild(el('div',{style:{fontSize:'12px',color:'var(--muted)',marginTop:'2px'}},[`${e.type==='monthly'?mLbl(e.month):e.date} · ${py?`Paid by ${py.name}`:'Paid by Pool'}`]));
+    if(e.note)lft.appendChild(el('div',{style:{fontSize:'11px',color:'var(--muted)'}},[e.note]));
+    const rgt2=el('div',{style:{display:'flex',alignItems:'flex-start',gap:'10px',flexShrink:'0'}});
+    const amts=el('div',{style:{textAlign:'right'}});
+    amts.appendChild(el('div',{style:{fontWeight:'500'}},[fmt(e.amount)]));
+    amts.appendChild(el('div',{style:{fontSize:'11px',color:'var(--muted)'}},[fromPool?'Deducted from pool':`÷16 = ${fmt(e.amount/N)}`]));
+    const poolSt=e.poolSettled&&!fromPool;
+    const badgeCls=fromPool?'b-purple':poolSt?'b-ok':(pc.p===pc.t?'b-ok':pc.p>1?'b-warn':'b-danger');
+    const badge=el('button',{class:`badge ${badgeCls}`,style:{marginTop:'5px'}},[fromPool?'Pool expense':poolSt?'✓ Pool settled':`${pc.p}/${pc.t} paid`]);
+    if(!fromPool&&!poolSt)badge.addEventListener('click',()=>openPayModal('expense',e.id));
+    amts.appendChild(badge);rgt2.appendChild(amts);
+    if(isAdmin){rgt2.appendChild(ib(()=>openEditExpense(e.id),'<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>','Edit'));rgt2.appendChild(ib(()=>upd(p=>({...p,expenses:p.expenses.filter(x=>x.id!==e.id)}),'deleted expense: '+e.name),TRASH));}
+    row.appendChild(lft);row.appendChild(rgt2);c.appendChild(row);w.appendChild(c);
+  });
+  return w;
+}
+
+// Qattah
+function renderQattah(){
+  const w=el('div',{style:{padding:'20px',maxWidth:'860px',margin:'0 auto'}});
+  const pool=qPool(),pos=pool.bal>=0;
+  const pc=el('div',{style:{background:pos?'var(--s-purple)':'var(--s-danger)',border:`1px solid ${pos?'var(--c-purple)':'var(--c-danger)'}22`,borderRadius:'var(--radius)',padding:'22px',marginBottom:'20px'}});
+  pc.appendChild(el('div',{style:{fontSize:'11px',fontWeight:'500',color:'var(--muted)',textTransform:'uppercase',marginBottom:'8px'}},['Qattah pool balance']));
+  pc.appendChild(el('div',{style:{fontSize:'30px',fontWeight:'500',color:pos?'var(--c-purple)':'var(--c-danger)'}},[fmt(pool.bal)]));
+  const sub2=el('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'12px',marginTop:'16px'}});
+  [['Total collected',pool.col,'var(--c-ok)','var(--s-ok)'],['Spent from pool',pool.spent,'var(--c-danger)','var(--s-danger)']].forEach(([l,v,c,bg])=>{const box=el('div',{style:{background:bg,borderRadius:'var(--rsm)',padding:'12px'}});box.appendChild(el('div',{style:{fontSize:'11px',color:'var(--muted)',fontWeight:'500',marginBottom:'4px',textTransform:'uppercase'}},[l]));box.appendChild(el('div',{style:{fontSize:'16px',fontWeight:'500',color:c}},[fmt(v)]));sub2.appendChild(box);});
+  pc.appendChild(sub2);w.appendChild(pc);
+  const tRow=el('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'16px'}});
+  tRow.appendChild(el('div',{style:{fontWeight:'500'}},['Qattah rounds']));
+  if(isAdmin){const ab=el('button',{class:'btn btn-p'},['+ New Qattah']);ab.addEventListener('click',()=>{const autoName=`Qattah ${state.qattahs.length+1}`;let f={name:'',month:nowM(),amt:'',note:''};const ni=mki('text',autoName,'',v=>f.name=v);const mi=mki('month','',f.month,v=>f.month=v);mi.value=f.month;const prev2=el('div',{style:{display:'none',background:'var(--s-purple)',borderRadius:'var(--rsm)',padding:'10px',marginBottom:'12px',fontSize:'13px',color:'var(--c-purple)'}});const ai=mki('number','Amount per person (SAR)','',v=>{f.amt=v;const x=+v;prev2.style.display=x>0?'block':'none';if(x>0)prev2.textContent=`Total pool: ${fmt(x*N)} (${N} members x ${fmt(x)})`;});const xni=mki('text','Note (optional)','',v=>f.note=v);const btn=el('button',{class:'btn btn-p',style:{width:'100%'}},['Create Qattah round']);btn.addEventListener('click',()=>{const amt=+f.amt;if(!amt||amt<=0)return;const name=f.name.trim()||autoName;const shares=state.members.map(m=>({memberId:m.id,amount:amt,paid:false}));upd(p=>({...p,qattahs:[...p.qattahs,{id:gid(),name,month:f.month,amtPerPerson:amt,shares,note:f.note}]}));modalEl&&(modalEl.remove(),modalEl=null);});showModal('New Qattah Round',el('div',[fw('Round name',ni),fw('Month',mi),fw('Amount per person (SAR)',ai),prev2,fw('Note (optional)',xni),btn]));});tRow.appendChild(ab);}
+  w.appendChild(tRow);
+  if(!state.qattahs.length)w.appendChild(el('div',{class:'card',style:{color:'var(--muted)',fontSize:'13px'}},['No Qattah rounds yet. Create one to start collecting.']));
+  [...state.qattahs].sort((a,b)=>b.month.localeCompare(a.month)).forEach(q=>{const qc=qCnt(q);const col=q.shares.filter(s=>s.paid).reduce((s,sh)=>s+sh.amount,0);const c=el('div',{class:'card',style:{marginBottom:'12px'}});const row=el('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'flex-start'}});const lft=el('div',{style:{flex:'1'}});lft.appendChild(el('div',{style:{fontWeight:'500',fontSize:'15px'}},[q.name]));lft.appendChild(el('div',{style:{fontSize:'13px',color:'var(--muted)',marginTop:'2px'}},[`${mLbl(q.month)} \u00B7 ${fmt(q.amtPerPerson)} / person`]));if(q.note)lft.appendChild(el('div',{style:{fontSize:'12px',color:'var(--muted)'}},[q.note]));const rgt2=el('div',{style:{display:'flex',alignItems:'flex-start',gap:'12px',flexShrink:'0'}});const nums=el('div',{style:{textAlign:'right'}});nums.appendChild(el('div',{style:{fontWeight:'500'}},[fmt(col)+' collected']));nums.appendChild(el('div',{style:{fontSize:'11px',color:'var(--muted)'}},[`of ${fmt(q.amtPerPerson*N)} total`]));const badge=el('button',{class:`badge ${qc.p===qc.t?'b-ok':qc.p>0?'b-warn':'b-danger'}`,style:{marginTop:'5px'}},[`${qc.p}/${qc.t} paid`]);badge.addEventListener('click',()=>openPayModal('qattah',q.id));nums.appendChild(badge);rgt2.appendChild(nums);if(isAdmin)rgt2.appendChild(ib(()=>openEditQattah(q.id),'<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>','Edit'));rgt2.appendChild(ib(()=>upd(p=>({...p,qattahs:p.qattahs.filter(x=>x.id!==q.id)})),TRASH));row.appendChild(lft);row.appendChild(rgt2);c.appendChild(row);w.appendChild(c);});
+  return w;
+}
+
+// Balances
+function renderBalances(){
+  const w=el('div',{style:{padding:'20px',maxWidth:'900px',margin:'0 auto'}});
+  const bal=calcBal();
+  const sorted=[...state.members].sort((a,b)=>bal[a.id]-bal[b.id]);
+  const debtors=sorted.filter(m=>bal[m.id]<-0.5);
+  const creditors=sorted.filter(m=>bal[m.id]>0.5);
+  const settled=sorted.filter(m=>Math.abs(bal[m.id])<=0.5);
+  const totalDebt=debtors.reduce((s,m)=>s-bal[m.id],0);
+  const hdr=el('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:'20px'}});
+  hdr.appendChild(el('div',[el('div',{style:{fontWeight:'500',fontSize:'16px'}},['Group Account Balances']),el('div',{style:{fontSize:'13px',color:'var(--muted)',marginTop:'2px'}},['Total owed to pool: ',el('span',{style:{fontWeight:'500',color:totalDebt>0.5?'var(--c-danger)':'var(--c-ok)'}},[fmt(totalDebt)])])]));
+  if(isAdmin){
+    const btnGroup=el('div',{style:{display:'flex',gap:'8px',flexWrap:'wrap'}});
+    const makeSettleBtn=(label,cls,title,type)=>{
+      const b=el('button',{class:`btn ${cls} btn-sm`},[label]);
+      b.addEventListener('click',()=>{
+        let f={memberId:'',amount:'',date:nowD(),note:''};
+        const mo=[['','-- Select member --'],...state.members.map(m=>[m.id,m.name])];
+        const ai=mki('number','0.00','',v=>f.amount=v);
+        const di=mki('date','',f.date,v=>f.date=v);di.value=f.date;
+        const notePlaceholder=type==='member_owes'?'Reason (e.g. previous debt, fine...)':'Note...';
+        const ni=mki('text',notePlaceholder,'',v=>f.note=v);
+        const btnLabels={pool_receive:'Record payment to pool',pool_pay:'Record payment from pool',member_owes:'Record debt'};
+        const sb=el('button',{class:'btn btn-p',style:{width:'100%'}},[btnLabels[type]]);
+        sb.addEventListener('click',()=>{if(!f.memberId||!f.amount||+f.amount<=0)return;upd(p=>({...p,settlements:[...p.settlements,{id:gid(),type,memberId:f.memberId,amount:+f.amount,date:f.date,note:f.note}]}),(type==='pool_receive'?'recorded payment to pool from ':'recorded pool payment to ')+(state.members.find(m=>m.id===f.memberId)?.name||'?')+' ('+fmt(+f.amount)+')');modalEl&&(modalEl.remove(),modalEl=null);});
+        showModal(title,el('div',[fw('Member',mks(mo,v=>f.memberId=v)),fw('Amount (SAR)',ai),fw('Date',di),fw(type==='member_owes'?'Reason':'Note (optional)',ni),sb]));
+      });
+      return b;
+    };
+    btnGroup.appendChild(makeSettleBtn('Member paid to pool','btn-p','Member paid to Group Account','pool_receive'));
+    btnGroup.appendChild(makeSettleBtn('Pool paid to member','btn-g','Pool paid to member','pool_pay'));
+    const owesBtn=el('button',{class:'btn btn-sm',style:{background:'var(--s-danger)',color:'var(--c-danger)',border:'1px solid var(--c-danger)33'}},['Member owes us']);
+    owesBtn.addEventListener('click',()=>{
+      let f={memberId:'',amount:'',date:nowD(),note:''};
+      const mo=[['','-- Select member --'],...state.members.map(m=>[m.id,m.name])];
+      const ai=mki('number','0.00','',v=>f.amount=v);
+      const di=mki('date','',f.date,v=>f.date=v);di.value=f.date;
+      const ni=mki('text','Reason (e.g. previous debt, fine...)','',v=>f.note=v);
+      const sb=el('button',{class:'btn btn-p',style:{width:'100%'}},['Record debt']);
+      sb.addEventListener('click',()=>{if(!f.memberId||!f.amount||+f.amount<=0)return;upd(p=>({...p,settlements:[...p.settlements,{id:gid(),type:'member_owes',memberId:f.memberId,amount:+f.amount,date:f.date,note:f.note}]}),'recorded debt: '+(state.members.find(m=>m.id===f.memberId)?.name||'?')+' owes '+fmt(+f.amount));modalEl&&(modalEl.remove(),modalEl=null);});
+      showModal('Record: Member owes Group Account',el('div',[fw('Member',mks(mo,v=>f.memberId=v)),fw('Amount they owe (SAR)',ai),fw('Date',di),fw('Reason',ni),sb]));
+    });
+    btnGroup.appendChild(owesBtn);hdr.appendChild(btnGroup);
+  }
+  w.appendChild(hdr);
+  const tagC={expense:'var(--c-danger)',qattah:'var(--c-danger)',qsettled:'var(--c-ok)',fronted:'var(--c-ok)',settled:'var(--c-info)',settlement:'var(--c-info)'};
+  const tagL={expense:'Expense',qattah:'Qattah/Rent (unsettled)',qsettled:'Settled',fronted:'Fronted',settled:'Fronted (paid)',settlement:'Settlement'};
+  function makeRow(m,i,arr){
+    const b=bal[m.id],zero=Math.abs(b)<=0.5,pos=b>0.5,isTr=state.treasurer===m.id;
+    const breakdown=memberBreakdown(m.id);
+    const wrap=el('div',{style:{borderBottom:i<arr.length-1?'1px solid var(--border)':'none'}});
+    const row=el('div',{style:{display:'flex',alignItems:'center',padding:'13px 20px',background:zero?'var(--card)':pos?'var(--s-ok)':'var(--s-danger)',cursor:breakdown.length?'pointer':'default'}});
+    const av=el('div',{style:{width:'34px',height:'34px',borderRadius:'50%',background:zero?'var(--border)':pos?'var(--c-ok)':'var(--c-danger)',color:'#fff',display:'flex',alignItems:'center',justifyContent:'center',fontWeight:'500',fontSize:'14px',marginRight:'14px',flexShrink:'0'}},[m.name.charAt(0).toUpperCase()]);
+    const info=el('div',{style:{flex:'1',minWidth:'0'}});
+    const nr=el('div',{style:{display:'flex',alignItems:'center',gap:'6px',flexWrap:'wrap'}});
+    nr.appendChild(el('div',{style:{fontWeight:'500',fontSize:'14px',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}},[m.name]));
+    if(isTr)nr.appendChild(el('span',{class:'pill',style:{background:'#f59e0b',color:'#fff'}},['Treasurer']));
+    info.appendChild(nr);
+    let subTxt=zero?'Settled \u2713':pos?'Pool owes them':'Owes pool';
+    if(!zero&&!pos){
+      const owedDates=state.settlements.filter(s=>s.type==='member_owes'&&s.memberId===m.id).map(s=>s.date);
+      if(owedDates.length){const oldest=Math.max(...owedDates.map(daysSince));if(oldest>0)subTxt+=' \u00b7 oldest debt '+oldest+'d';}
+    }
+    info.appendChild(el('div',{style:{fontSize:'11px',color:'var(--muted)'}},[subTxt]));
+    const val=el('div',{style:{fontWeight:'500',fontSize:'15px',color:zero?'var(--muted)':pos?'var(--c-ok)':'var(--c-danger)',flexShrink:'0',marginRight:'8px'}},[zero?'--':(pos?'+':'')+fmt(b)]);
+    const arrow=breakdown.length?el('div',{style:{color:'var(--muted)',fontSize:'11px',flexShrink:'0'}},['▶']):null;
+    row.appendChild(av);row.appendChild(info);row.appendChild(val);if(arrow)row.appendChild(arrow);
+    const panel=el('div',{style:{display:'none',padding:'0 20px 14px 68px',background:zero?'var(--card)':pos?'var(--s-ok)':'var(--s-danger)'}});
+    if(!breakdown.length)panel.appendChild(el('div',{style:{fontSize:'13px',color:'var(--muted)'}},['Nothing outstanding.']));
+    else breakdown.forEach(line=>{const r2=el('div',{style:{display:'flex',justifyContent:'space-between',padding:'5px 0',borderBottom:'1px solid var(--border)',fontSize:'13px'}});r2.appendChild(el('div',{style:{display:'flex',alignItems:'center',gap:'6px'}},[el('span',{class:'pill',style:{background:(tagC[line.tag]||'var(--muted)')+'22',color:tagC[line.tag]||'var(--muted)'}},[tagL[line.tag]||line.tag]),el('span',{},[line.label])]));r2.appendChild(el('div',{style:{fontWeight:'500',color:line.amount<0?'var(--c-danger)':'var(--c-ok)',flexShrink:'0',marginLeft:'8px'}},[line.amount<0?fmt(-line.amount):'+'+fmt(line.amount)]));panel.appendChild(r2);});
+    let open=false;
+    if(breakdown.length)row.addEventListener('click',()=>{open=!open;panel.style.display=open?'block':'none';if(arrow)arrow.textContent=open?'▼':'▶';});
+    wrap.appendChild(row);wrap.appendChild(panel);return wrap;
+  }
+  if(debtors.length){w.appendChild(el('div',{style:{fontWeight:'500',fontSize:'13px',color:'var(--c-danger)',marginBottom:'8px',textTransform:'uppercase',letterSpacing:'.5px'}},['Owes Group Account']));const lc1=el('div',{style:{background:'var(--card)',borderRadius:'var(--radius)',border:'1px solid var(--border)',overflow:'hidden',marginBottom:'16px'}});debtors.forEach((m,i)=>lc1.appendChild(makeRow(m,i,debtors)));w.appendChild(lc1);}
+  if(creditors.length){w.appendChild(el('div',{style:{fontWeight:'500',fontSize:'13px',color:'var(--c-ok)',marginBottom:'8px',textTransform:'uppercase',letterSpacing:'.5px'}},['Group Account owes them']));w.appendChild(el('div',{style:{fontSize:'12px',color:'var(--muted)',marginBottom:'10px'}},['These members have fronted expenses. Tap their row to see a breakdown, then record settlement as “Pool paid to member”.']));const lc2=el('div',{style:{background:'var(--card)',borderRadius:'var(--radius)',border:'1px solid var(--border)',overflow:'hidden',marginBottom:'16px'}});creditors.forEach((m,i)=>lc2.appendChild(makeRow(m,i,creditors)));w.appendChild(lc2);}
+  if(settled.length){w.appendChild(el('div',{style:{fontWeight:'500',fontSize:'13px',color:'var(--muted)',marginBottom:'8px',textTransform:'uppercase',letterSpacing:'.5px'}},['Settled']));const lc3=el('div',{style:{background:'var(--card)',borderRadius:'var(--radius)',border:'1px solid var(--border)',overflow:'hidden',marginBottom:'16px'}});settled.forEach((m,i)=>lc3.appendChild(makeRow(m,i,settled)));w.appendChild(lc3);}
+  const hist=[...state.settlements].sort((a,b)=>b.date.localeCompare(a.date)).slice(0,20);
+  if(hist.length){
+    w.appendChild(el('div',{style:{fontWeight:'500',marginBottom:'12px'}},['Settlement history']));
+    hist.forEach(s=>{
+      const m=state.members.find(x=>x.id===s.memberId||x.id===s.from);const m2=s.to?state.members.find(x=>x.id===s.to):null;
+      const row=el('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center'}});
+      const lbl=document.createElement('div');lbl.style.cssText='font-size:13px;flex:1';
+      if(s.type==='pool_receive')lbl.innerHTML=`<strong>${m?.name||'?'}</strong> paid Group Account <span style="color:var(--c-ok);font-weight:500">${fmt(s.amount)}</span> · ${s.date}${s.note?` · <span style="color:var(--muted)">${s.note}</span>`:''}`;
+      else if(s.type==='pool_pay')lbl.innerHTML=`Group Account paid <strong>${m?.name||'?'}</strong> <span style="color:var(--c-ok);font-weight:500">${fmt(s.amount)}</span> · ${s.date}${s.note?` · <span style="color:var(--muted)">${s.note}</span>`:''}`;
+      else if(s.type==='member_owes')lbl.innerHTML=`<strong>${m?.name||'?'}</strong> owes Group Account <span style="color:var(--c-danger);font-weight:500">${fmt(s.amount)}</span> · ${s.date} <span style="color:var(--c-danger)">(${daysSince(s.date)}d)</span>${s.note?` · <span style="color:var(--muted)">${s.note}</span>`:''}`;
+      else lbl.innerHTML=`<strong>${m?.name||'?'}</strong> paid <strong>${m2?.name||'?'}</strong> <span style="color:var(--c-ok);font-weight:500">${fmt(s.amount)}</span> · ${s.date}${s.note?` · <span style="color:var(--muted)">${s.note}</span>`:''}`;
+      const editBtn=isAdmin?ib(()=>openEditSettlement(s.id),'<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>','Edit'):null;
+      const delBtn=isAdmin?ib(()=>upd(p=>({...p,settlements:p.settlements.filter(x=>x.id!==s.id)}),'deleted a settlement entry ('+fmt(s.amount)+')'),TRASH):null;
+      row.appendChild(lbl);if(editBtn)row.appendChild(editBtn);if(delBtn)row.appendChild(delBtn);
+      const c=el('div',{class:'card',style:{marginBottom:'8px',padding:'10px 14px'}});c.appendChild(row);w.appendChild(c);
+    });
+  }
+  return w;
+}
+
+function openEditExpense(id){if(!isAdmin){openUnlockModal(()=>openEditExpense(id));return;}const exp=state.expenses.find(e=>e.id===id);if(!exp)return;const v=exp.type;let f={name:exp.name,amount:String(exp.amount),month:exp.month||nowM(),date:exp.date||nowD(),paidBy:exp.paidBy||'',note:exp.note||''};const ni=mki('text','Name',f.name,x=>f.name=x);ni.value=f.name;const ai=mki('number','Amount',f.amount,x=>f.amount=x);ai.value=f.amount;const di=mki(v==='monthly'?'month':'date','',v==='monthly'?f.month:f.date,x=>{v==='monthly'?f.month=x:f.date=x;});di.value=v==='monthly'?f.month:f.date;const mo=[['','-- Pool (paid by pool) --'],...state.members.map(m=>[m.id,m.name])];const ps=mks(mo,x=>f.paidBy=x);ps.value=f.paidBy;const xni=mki('text','Note',f.note,x=>f.note=x);xni.value=f.note;let recWrap2=null;
+if(exp.recurring){
+  recWrap2=el('label',{style:{display:'flex',alignItems:'center',gap:'8px',fontSize:'13px',marginBottom:'14px',cursor:'pointer'}});
+  const cb2=el('input',{type:'checkbox'});cb2.checked=true;f.recurring=true;
+  cb2.addEventListener('change',()=>f.recurring=cb2.checked);
+  recWrap2.appendChild(cb2);recWrap2.appendChild(el('span',{},['\u21BB Keep repeating monthly (untick to stop the series)']));
+}
+const btn=el('button',{class:'btn btn-p',style:{width:'100%'}},['Save changes']);btn.addEventListener('click',()=>{if(!f.name.trim()||!f.amount||+f.amount<=0)return;upd(p=>({...p,expenses:p.expenses.map(e=>e.id===id?{...e,name:f.name.trim(),amount:+f.amount,paidBy:f.paidBy||null,...(v==='monthly'?{month:f.month}:{date:f.date}),note:f.note,...(exp.recurring&&!f.recurring?{recurring:false}:{})}:e)}),'edited expense: '+f.name.trim());modalEl&&(modalEl.remove(),modalEl=null);});showModal('Edit expense',el('div',[fw('Name',ni),fw('Amount (SAR)',ai),fw(v==='monthly'?'Month':'Date',di),fw('Who paid?',ps),fw('Note',xni),recWrap2,btn].filter(Boolean)));}
+function openEditQattah(id){if(!isAdmin){openUnlockModal(()=>openEditQattah(id));return;}const q=state.qattahs.find(x=>x.id===id);if(!q)return;let f={name:q.name,month:q.month,amt:String(q.amtPerPerson),note:q.note||''};const ni=mki('text','Name',f.name,x=>f.name=x);ni.value=f.name;const mi=mki('month','',f.month,x=>f.month=x);mi.value=f.month;const ai=mki('number','Per person',f.amt,x=>f.amt=x);ai.value=f.amt;const xni=mki('text','Note',f.note,x=>f.note=x);xni.value=f.note;const btn=el('button',{class:'btn btn-p',style:{width:'100%'}},['Save changes']);btn.addEventListener('click',()=>{if(!f.name.trim()||!f.amt||+f.amt<=0)return;upd(p=>({...p,qattahs:p.qattahs.map(x=>x.id===id?{...x,name:f.name.trim(),month:f.month,amtPerPerson:+f.amt,note:f.note,shares:x.shares.map(s=>({...s,amount:+f.amt}))}:x)}));modalEl&&(modalEl.remove(),modalEl=null);});showModal('Edit Qattah',el('div',[fw('Name',ni),fw('Month',mi),fw('Per person (SAR)',ai),fw('Note',xni),btn]));}
+function openEditRent(id){if(!isAdmin){openUnlockModal(()=>openEditRent(id));return;}const rp=state.rentPeriods.find(x=>x.id===id);if(!rp)return;let f={amount:String(rp.amount6m),startMonth:rp.startMonth,note:rp.note||''};const ai=mki('number','6-month total',f.amount,x=>f.amount=x);ai.value=f.amount;const mi=mki('month','',f.startMonth,x=>f.startMonth=x);mi.value=f.startMonth;const ni=mki('text','Note',f.note,x=>f.note=x);ni.value=f.note;const btn=el('button',{class:'btn btn-p',style:{width:'100%'}},['Save changes']);btn.addEventListener('click',()=>{if(!f.amount||+f.amount<=0)return;upd(p=>({...p,rentPeriods:p.rentPeriods.map(x=>x.id===id?{...x,amount6m:+f.amount,startMonth:f.startMonth,note:f.note}:x)}));modalEl&&(modalEl.remove(),modalEl=null);});showModal('Edit rent period',el('div',[fw('6-month rent (SAR)',ai),fw('Start month',mi),fw('Note',ni),btn]));}
+function openEditSettlement(id){if(!isAdmin){openUnlockModal(()=>openEditSettlement(id));return;}const s=state.settlements.find(x=>x.id===id);if(!s)return;let f={amount:String(s.amount),date:s.date,note:s.note||''};const ai=mki('number','Amount',f.amount,x=>f.amount=x);ai.value=f.amount;const di=mki('date','',f.date,x=>f.date=x);di.value=f.date;const ni=mki('text','Note',f.note,x=>f.note=x);ni.value=f.note;const btn=el('button',{class:'btn btn-p',style:{width:'100%'}},['Save changes']);btn.addEventListener('click',()=>{if(!f.amount||+f.amount<=0)return;upd(p=>({...p,settlements:p.settlements.map(x=>x.id===id?{...x,amount:+f.amount,date:f.date,note:f.note}:x)}));modalEl&&(modalEl.remove(),modalEl=null);});showModal('Edit settlement',el('div',[fw('Amount (SAR)',ai),fw('Date',di),fw('Note',ni),btn]));}
+
+// Activity log
+function renderActivity(){
+  const w=el('div',{style:{padding:'20px',maxWidth:'860px',margin:'0 auto'}});
+  // Device name selector (who am I on this device)
+  const nameCard=el('div',{class:'card',style:{marginBottom:'16px',display:'flex',justifyContent:'space-between',alignItems:'center',gap:'12px',flexWrap:'wrap'}});
+  nameCard.appendChild(el('div',[el('div',{style:{fontWeight:'500',fontSize:'14px'}},['Your name on this device']),el('div',{style:{fontSize:'12px',color:'var(--muted)',marginTop:'2px'}},['Actions you take are recorded under this name'])]));
+  const sel=mks([['','-- Not set --'],...state.members.map(m=>[m.id,m.name])],v=>{const m=state.members.find(x=>x.id===v);localStorage.setItem('aca-devname',m?m.name:'');});
+  const cur=devName();const curM=state.members.find(m=>m.name===cur);if(curM)sel.value=curM.id;
+  sel.style.maxWidth='200px';
+  nameCard.appendChild(sel);w.appendChild(nameCard);
+  // Log entries
+  w.appendChild(el('div',{style:{fontWeight:'500',fontSize:'16px',marginBottom:'12px'}},['Activity log']));
+  const acts=[...(state.activity||[])].reverse();
+  if(!acts.length){w.appendChild(el('div',{class:'card',style:{color:'var(--muted)',fontSize:'13px'}},['No activity recorded yet. Actions like payments, new expenses, and edits will appear here.']));return w;}
+  const list=el('div',{style:{background:'var(--card)',borderRadius:'var(--radius)',border:'1px solid var(--border)',overflow:'hidden'}});
+  acts.forEach((a,i)=>{
+    const d=new Date(a.ts);
+    const when=d.toLocaleDateString('en',{month:'short',day:'numeric'})+' '+d.toLocaleTimeString('en',{hour:'2-digit',minute:'2-digit'});
+    const row=el('div',{style:{padding:'10px 16px',borderBottom:i<acts.length-1?'1px solid var(--border)':'none',display:'flex',justifyContent:'space-between',gap:'12px',alignItems:'baseline'}});
+    row.appendChild(el('div',{style:{fontSize:'13px',flex:'1'}},[a.who?el('strong',{},[a.who+' ']):'',a.msg]));
+    row.appendChild(el('div',{style:{fontSize:'11px',color:'var(--muted)',flexShrink:'0'}},[when]));
+    list.appendChild(row);
+  });
+  w.appendChild(list);
+  // Backups card (admin only)
+  if(isAdmin&&DB_URL){
+    const bc=el('div',{class:'card',style:{marginTop:'16px'}});
+    bc.appendChild(el('div',{style:{fontWeight:'500',fontSize:'14px',marginBottom:'4px'}},['Daily backups']));
+    bc.appendChild(el('div',{style:{fontSize:'12px',color:'var(--muted)',marginBottom:'10px'}},['A snapshot is saved automatically once per day (last 7 kept). Restore replaces ALL current data.']));
+    const holder=el('div',{style:{fontSize:'13px',color:'var(--muted)'}},['Loading backups...']);
+    bc.appendChild(holder);
+    listBackups().then(keys=>{
+      holder.innerHTML='';
+      if(!keys.length){holder.textContent='No backups yet \u2014 the first one is created on next app load.';return;}
+      keys.forEach(k=>{
+        const row=el('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'7px 0',borderBottom:'1px solid var(--border)'}});
+        row.appendChild(el('div',{style:{fontSize:'13px',fontWeight:'500'}},[k]));
+        const rb=el('button',{class:'btn btn-g btn-sm'},['Restore']);
+        rb.addEventListener('click',async()=>{
+          if(!confirm('Replace ALL current data with the backup from '+k+'? This cannot be undone (though today\u2019s snapshot still exists).'))return;
+          rb.textContent='Restoring...';rb.disabled=true;
+          try{await restoreBackup(k);}catch{rb.textContent='Failed';setTimeout(()=>{rb.textContent='Restore';rb.disabled=false;},2000);}
+        });
+        row.appendChild(rb);holder.appendChild(row);
+      });
+    });
+    w.appendChild(bc);
+  }
+  return w;
+}
+function render(){const root=document.getElementById('root');root.innerHTML='';if(!state){root.innerHTML='<div style="padding:40px;text-align:center;color:var(--muted)">Loading...</div>';return;}root.appendChild(renderHeader());const pages={dashboard:renderDashboard,members:renderMembers,rent:renderRent,expenses:renderExpenses,qattah:renderQattah,balances:renderBalances,activity:renderActivity};const page=pages[tab]?.();if(page)root.appendChild(page);}
+
+async function init(){
+  const hash=location.hash.slice(1);
+  if(hash){try{
+    const raw=atob(hash);
+    let url=null,key=null;
+    if(raw.startsWith('{')){const p=JSON.parse(raw);url=p.u;key=p.k||null;}
+    else url=raw; // legacy link format (URL only)
+    if(isValidFb(url)){DB_URL=url;localStorage.setItem(LS_FB,url);if(key){FB_KEY=key;localStorage.setItem('aca-fbkey',key);}}
+  }catch{}}
+  if(!DB_URL)DB_URL=localStorage.getItem(LS_FB)||null;
+  if(!FB_KEY)FB_KEY=localStorage.getItem('aca-fbkey')||null;
+  const local=lsL();
+  function bestMembers(a,b){const real=arr=>(arr||[]).filter(m=>m&&m.name&&!m.name.match(/^Person \d+$/)).length;if(real(a)>=real(b))return a;return b;}
+  if(DB_URL){
+    try{const data=await fbRead();
+      if(data){const fbM=data.members||[];const lsM=(local&&local.members)||[];
+        const best=bestMembers(fbM,lsM);const realCount=best.filter(m=>m&&m.name&&!m.name.match(/^Person \d+$/)).length;
+        data.members=realCount>1?best:INIT.members;}
+      state=migrate(data||{});lsS();await fbWrite(state);
+    }catch{state=migrate(local);}
+    fbSub();
+  }else{
+    state=migrate(local);
+    const defaultCount=state.members.filter(m=>m.name.match(/^Person \d+$/)).length;
+    if(defaultCount>1){state.members=INIT.members.map((m,i)=>({...m,...(state.members[i]||{}),name:m.name}));lsS();}
+  }
+  if(!state.adminHash)isAdmin=true;
+  rollRecurring();
+  render();
+  fbSnapshot();
+}
+// Auto-create this month's copy of recurring monthly expenses
+function rollRecurring(){
+  const ym=nowM();
+  const toAdd=[];
+  const recIds=new Set();
+  state.expenses.forEach(e=>{
+    if(e.type==='monthly'&&e.recurring&&e.recurringId&&e.month===ym)recIds.add(e.recurringId);
+  });
+  // group recurring series by recurringId, take the latest instance
+  const series={};
+  state.expenses.forEach(e=>{
+    if(e.type==='monthly'&&e.recurring&&e.recurringId&&!recIds.has(e.recurringId)){
+      if(!series[e.recurringId]||e.month>series[e.recurringId].month)series[e.recurringId]=e;
+    }
+  });
+  Object.values(series).forEach(src=>{
+    if(src.month<ym)toAdd.push({id:gid(),type:'monthly',name:src.name,amount:src.amount,paidBy:src.paidBy||null,paidMembers:src.paidBy?[src.paidBy]:[],note:src.note||'',month:ym,recurring:true,recurringId:src.recurringId,poolSettled:false});
+  });
+  if(toAdd.length){
+    upd(p=>({...p,expenses:[...p.expenses,...toAdd]}),'auto-created '+toAdd.length+' recurring expense'+(toAdd.length>1?'s':'')+' for '+mLbl(ym));
+  }
+}
+init();
+if('serviceWorker' in navigator){window.addEventListener('load',()=>{navigator.serviceWorker.register('sw.js').catch(()=>{});});}
+</script>
+</body>
+</html>
