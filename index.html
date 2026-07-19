@@ -504,7 +504,12 @@ function openSetupModal(){
       if(r.status===401||r.status===403)throw new Error('auth');if(!r.ok)throw new Error();
       DB_URL=clean;localStorage.setItem(LS_FB,clean);
       history.replaceState(null,'',location.pathname+'#'+btoa(FB_KEY?JSON.stringify({u:clean,k:FB_KEY}):clean));
-      await fbWrite(state);fbSub();modalEl&&(modalEl.remove(),modalEl=null);render();
+      // SAFE CONNECT: if the database already has data, adopt it - never overwrite
+      let remote=null;try{remote=await fbRead();}catch{}
+      const remoteHasData=remote&&((remote.expenses||[]).length||(remote.qattahs||[]).length||(remote.settlements||[]).length||(remote.rentPeriods||[]).length||(remote.members||[]).some(m=>m&&m.name&&!/^Person \d+$/.test(m.name)));
+      if(remoteHasData){state=migrate(remote);lsS();}
+      else{await fbWrite(state);}
+      fbSub();modalEl&&(modalEl.remove(),modalEl=null);render();
     }catch(e){errEl.innerHTML=e.message==='auth'
       ?'Permission denied. Either: (1) your rules require auth \u2014 paste your Web API Key above and make sure Anonymous sign-in is enabled in Firebase Authentication, or (2) set the rules to allow authenticated access.'
       :'Could not connect. Check the Database URL (Firebase Console > Realtime Database > Data tab) and the API key (Project settings > General > Web API Key).';
