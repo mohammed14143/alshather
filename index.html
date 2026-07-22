@@ -113,7 +113,7 @@ function migrate(s){
     activity:(s.activity||[]).slice(-200),
   };
 }
-let state=null,tab='dashboard',expView='monthly',modalEl=null;
+let state=null,tab='dashboard',expView='monthly',expSearch='',modalEl=null;
 
 // Firebase (REST + anonymous auth)
 let DB_URL=null,FB_KEY=null,evtSrc=null,fbOnline=false,justWrote=false;
@@ -185,6 +185,27 @@ async function restoreBackup(dateKey){
   if(!r.ok)throw new Error();
   const snap=await r.json();if(!snap)throw new Error();
   await upd(()=>migrate(snap),'restored data from backup '+dateKey);
+}
+// Rewrite the manifest at runtime so "Add to Home Screen" captures the DB config
+function updateManifest(){
+  try{
+    if(!DB_URL)return;
+    const payload=FB_KEY?JSON.stringify({u:DB_URL,k:FB_KEY}):DB_URL;
+    const base=location.origin+location.pathname;
+    const mf={
+      name:'Alshather Control App',short_name:'Alshather',
+      description:'Flatmate expense splitting: rent, Qattah pool, balances, and weekly gatherings',
+      start_url:base+'#'+btoa(payload),
+      scope:base.substring(0,base.lastIndexOf('/')+1),
+      display:'standalone',orientation:'portrait',
+      background_color:'#0f172a',theme_color:'#0f172a',
+      icons:[{src:'icon-192.png',sizes:'192x192',type:'image/png',purpose:'any'},
+             {src:'icon-512.png',sizes:'512x512',type:'image/png',purpose:'any maskable'}]
+    };
+    const blob=new Blob([JSON.stringify(mf)],{type:'application/manifest+json'});
+    const link=document.querySelector('link[rel="manifest"]');
+    if(link){if(link.dataset.blob)URL.revokeObjectURL(link.href);link.href=URL.createObjectURL(blob);link.dataset.blob='1';}
+  }catch{}
 }
 function getShareURL(){if(!DB_URL)return null;const payload=FB_KEY?JSON.stringify({u:DB_URL,k:FB_KEY}):DB_URL;return location.origin+location.pathname+'#'+btoa(payload);}
 function rdot(){const d=document.getElementById('cdot'),l=document.getElementById('clbl');if(d)d.style.background=DB_URL?(fbOnline?'#22c55e':'#f59e0b'):'#9ca3af';if(l)l.textContent=DB_URL?(fbOnline?'Live':'Connecting...'):'Local only';}
@@ -488,6 +509,18 @@ function openSetupModal(){
   const errEl=el('div',{style:{color:'var(--c-danger)',fontSize:'13px',marginTop:'8px',display:'none',lineHeight:'1.6'}});
   const ui=mki('url','https://your-project-default-rtdb.firebaseio.com',fbUrl,v=>fbUrl=v.trim());
   const ki=mki('text','AIza... (Web API Key, optional but recommended)',apiKey,v=>apiKey=v.trim());ki.value=apiKey;
+  // Quick setup: paste a share link and both fields fill automatically
+  const pasteInput=mki('text','Paste a share link here (fastest)','',v=>{
+    const raw=v.trim();if(!raw)return;
+    try{
+      const h=raw.includes('#')?raw.split('#')[1]:raw;
+      const dec=atob(h);
+      let u=null,k=null;
+      if(dec.startsWith('{')){const p=JSON.parse(dec);u=p.u;k=p.k||'';}else u=dec;
+      if(isValidFb(u)){fbUrl=u;ui.value=u;if(k){apiKey=k;ki.value=k;}
+        errEl.style.color='var(--c-ok)';errEl.innerHTML='\u2713 Link read \u2014 fields filled. Now tap Connect.';errEl.style.display='block';}
+    }catch{}
+  });
   const cBtn=el('button',{class:'btn btn-p',style:{width:'100%',marginTop:'4px'}},['Connect and enable live sync']);
   cBtn.addEventListener('click',async()=>{
     errEl.style.display='none';const clean=fbUrl.replace(/\/$/,'');
@@ -509,7 +542,7 @@ function openSetupModal(){
       const remoteHasData=remote&&((remote.expenses||[]).length||(remote.qattahs||[]).length||(remote.settlements||[]).length||(remote.rentPeriods||[]).length||(remote.members||[]).some(m=>m&&m.name&&!/^Person \d+$/.test(m.name)));
       if(remoteHasData){state=migrate(remote);lsS();}
       else{await fbWrite(state);}
-      fbSub();modalEl&&(modalEl.remove(),modalEl=null);render();
+      fbSub();updateManifest();modalEl&&(modalEl.remove(),modalEl=null);render();
     }catch(e){errEl.innerHTML=e.message==='auth'
       ?'Permission denied. Either: (1) your rules require auth \u2014 paste your Web API Key above and make sure Anonymous sign-in is enabled in Firebase Authentication, or (2) set the rules to allow authenticated access.'
       :'Could not connect. Check the Database URL (Firebase Console > Realtime Database > Data tab) and the API key (Project settings > General > Web API Key).';
@@ -523,7 +556,7 @@ function openSetupModal(){
          'Project settings (gear icon) > General > copy Web API Key',
          'Realtime Database > Rules > set read/write to: auth != null > Publish',
          'Paste Database URL and API Key below and click Connect'].map(s=>el('li',{},[s])))
-    ]),fw('Firebase Database URL',ui),fw('Web API Key',ki),cBtn,errEl
+    ]),fw('Quick setup \u2014 paste share link',pasteInput),fw('Firebase Database URL',ui),fw('Web API Key',ki),cBtn,errEl
   ]));
 }
 
@@ -564,8 +597,24 @@ function renderDashboard(){
   const debtors=[...state.members].filter(m=>bal[m.id]<-0.5).sort((a,b)=>bal[a.id]-bal[b.id]).slice(0,3);
   const rPay=rp?rCnt(ym):{p:0};
   const w=el('div',{style:{padding:'20px',maxWidth:'900px',margin:'0 auto'}});
+  // iOS install hint (only Safari, not already installed, not dismissed)
+  {
+    const isIOS=/iPad|iPhone|iPod/.test(navigator.userAgent);
+    const standalone=window.navigator.standalone===true||(window.matchMedia&&window.matchMedia('(display-mode: standalone)').matches);
+    const dismissed=localStorage.getItem('aca-installhint')==='1';
+    if(isIOS&&!standalone&&!dismissed){
+      const ib2=el('div',{style:{background:'var(--s-info)',border:'1px solid var(--c-info)33',borderRadius:'var(--rsm)',padding:'12px 14px',marginBottom:'14px',fontSize:'13px',color:'var(--c-info)',display:'flex',alignItems:'center',gap:'10px'}});
+      ib2.appendChild(el('div',{style:{flex:'1',lineHeight:'1.5'}},['\uD83D\uDCF2 Install this app: tap the Share button below, then \u201cAdd to Home Screen\u201d.']));
+      const x=el('button',{style:{background:'none',border:'none',color:'var(--c-info)',fontSize:'18px',cursor:'pointer',padding:'0 4px',fontFamily:'inherit'}},['\u00D7']);
+      x.addEventListener('click',()=>{localStorage.setItem('aca-installhint','1');render();});
+      ib2.appendChild(x);w.appendChild(ib2);
+    }
+  }
   if(!DB_URL)w.appendChild(el('div',{style:{background:'var(--s-warn)',border:'1px solid var(--c-warn)33',borderRadius:'var(--rsm)',padding:'12px 16px',marginBottom:'14px',fontSize:'13px',color:'var(--c-warn)',display:'flex',justifyContent:'space-between',alignItems:'center'}},
-    ['\uD83D\uDCE1 Running locally',el('button',{class:'btn btn-p btn-sm',onclick:openSetupModal},['Enable sharing'])]));
+    [(window.navigator.standalone===true||(window.matchMedia&&window.matchMedia('(display-mode: standalone)').matches))
+       ?'\uD83D\uDCF2 Almost there \u2014 connect this installed app to your group'
+       :'\uD83D\uDCE1 Running locally',
+     el('button',{class:'btn btn-p btn-sm',onclick:openSetupModal},['Connect'])]));
   if(rp&&rPay.p<N)w.appendChild(el('div',{style:{background:'var(--s-warn)',border:'1px solid var(--c-warn)33',borderRadius:'var(--rsm)',padding:'12px',marginBottom:'14px',fontSize:'13px',color:'var(--c-warn)'}},
     [`\u26A0 ${N-rPay.p} member${N-rPay.p>1?'s':''} have not paid rent for ${mLbl(ym)}`]));
   if(!isAdmin)w.appendChild(el('div',{style:{background:'var(--sec)',borderRadius:'var(--rsm)',padding:'10px 16px',marginBottom:'14px',fontSize:'13px',color:'var(--muted)',display:'flex',justifyContent:'space-between',alignItems:'center'}},
@@ -785,11 +834,22 @@ function renderExpenses(){
     showModal(`Add ${v==='monthly'?'monthly':'one-off'} expense`,el('div',[fw('Name',ni),fw('Amount (SAR)',ai),fw(v==='monthly'?'Month':'Date',di),payerSection,fw('Note (optional)',xni),recWrap,prev,btn].filter(Boolean)));
   });tRow.appendChild(ab);}
   w.appendChild(tRow);
+  // Search box
+  const searchWrap=el('div',{style:{marginBottom:'14px'}});
+  const searchInput=el('input',{type:'text',placeholder:'\uD83D\uDD0D Search expenses...',value:expSearch||'',style:{width:'100%',padding:'10px 12px',borderRadius:'var(--rsm)',border:'1px solid var(--border)',background:'var(--card)',color:'var(--fg)',fontSize:'14px',fontFamily:'inherit'}});
+  searchInput.addEventListener('input',e=>{expSearch=e.target.value;
+    const q=(expSearch||'').toLowerCase().trim();
+    document.querySelectorAll('[data-exprow]').forEach(row=>{
+      const hay=(row.getAttribute('data-exprow')||'').toLowerCase();
+      row.style.display=(!q||hay.includes(q))?'':'none';
+    });
+  });
+  searchWrap.appendChild(searchInput);w.appendChild(searchWrap);
   const list=state.expenses.filter(e=>e.type===expView).sort((a,b)=>(b.date||b.month||'').localeCompare(a.date||a.month||''));
   if(!list.length)w.appendChild(el('div',{class:'card',style:{color:'var(--muted)',fontSize:'13px'}},[expView==='monthly'?'No monthly expenses yet.':'No one-off purchases yet.']));
   list.forEach(e=>{
     const pc=pCnt(e),py=state.members.find(m=>m.id===e.paidBy),fromPool=!e.paidBy;
-    const c=el('div',{class:'card',style:{marginBottom:'10px'}});
+    const c=el('div',{class:'card',style:{marginBottom:'10px'},'data-exprow':(e.name+' '+(e.note||''))});
     const row=el('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:'12px'}});
     const lft=el('div',{style:{flex:'1'}});
     const nameRow=el('div',{style:{fontWeight:'500',display:'flex',alignItems:'center',gap:'6px',flexWrap:'wrap'}});
@@ -953,6 +1013,39 @@ function renderActivity(){
   const cur=devName();const curM=state.members.find(m=>m.name===cur);if(curM)sel.value=curM.id;
   sel.style.maxWidth='200px';
   nameCard.appendChild(sel);w.appendChild(nameCard);
+  // Export / Import data card
+  const ioCard=el('div',{class:'card',style:{marginBottom:'16px'}});
+  ioCard.appendChild(el('div',{style:{fontWeight:'500',fontSize:'14px',marginBottom:'4px'}},['Backup & restore data']));
+  ioCard.appendChild(el('div',{style:{fontSize:'12px',color:'var(--muted)',marginBottom:'10px'}},['Export saves a copy of everything to a file. Import replaces ALL current data.']));
+  const ioRow=el('div',{style:{display:'flex',gap:'8px',flexWrap:'wrap'}});
+  const expBtn=el('button',{class:'btn btn-g btn-sm'},['\u2B07 Export to file']);
+  expBtn.addEventListener('click',()=>{
+    const blob=new Blob([JSON.stringify(state,null,2)],{type:'application/json'});
+    const url=URL.createObjectURL(blob);
+    const a=document.createElement('a');a.href=url;a.download='alshather-backup-'+nowD()+'.json';
+    document.body.appendChild(a);a.click();a.remove();URL.revokeObjectURL(url);
+  });
+  ioRow.appendChild(expBtn);
+  if(isAdmin){
+    const impBtn=el('button',{class:'btn btn-g btn-sm'},['\u2B06 Import from file']);
+    const fileInput=el('input',{type:'file',accept:'application/json,.json',style:{display:'none'}});
+    fileInput.addEventListener('change',e=>{
+      const file=e.target.files[0];if(!file)return;
+      const reader=new FileReader();
+      reader.onload=()=>{
+        try{
+          const data=JSON.parse(reader.result);
+          const payload=data.aca?data.aca:data; // accept firebase-console export or app export
+          if(!confirm('Replace ALL current data with the imported file? A snapshot of current data is kept in backups.'))return;
+          upd(()=>migrate(payload),'imported data from file');
+        }catch(err){alert('Could not read that file \u2014 make sure it is a valid JSON backup.');}
+      };
+      reader.readAsText(file);
+    });
+    impBtn.addEventListener('click',()=>fileInput.click());
+    ioRow.appendChild(impBtn);ioRow.appendChild(fileInput);
+  }
+  ioCard.appendChild(ioRow);w.appendChild(ioCard);
   // Log entries
   w.appendChild(el('div',{style:{fontWeight:'500',fontSize:'16px',marginBottom:'12px'}},['Activity log']));
   const acts=[...(state.activity||[])].reverse();
@@ -1024,6 +1117,7 @@ async function init(){
   if(!state.adminHash)isAdmin=true;
   rollRecurring();
   render();
+  updateManifest();
   fbSnapshot();
 }
 // Auto-create this month's copy of recurring monthly expenses
