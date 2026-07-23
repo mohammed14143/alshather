@@ -138,7 +138,7 @@ function applyDir(){
 }
 // Month label respecting language
 function mLblL(ym){try{const [y,m]=ym.split('-');const dt=new Date(+y,+m-1,1);
-  return dt.toLocaleDateString(lang==='ar'?'ar-SA-u-nu-latn':'en',{month:'long',year:'numeric'});}catch{return ym;}}
+  return dt.toLocaleDateString(lang==='ar'?'ar-SA-u-ca-gregory-nu-latn':'en',{calendar:'gregory',month:'long',year:'numeric'});}catch{return ym;}}
 
 // Firebase (REST + anonymous auth)
 let DB_URL=null,FB_KEY=null,evtSrc=null,fbOnline=false,justWrote=false;
@@ -681,7 +681,7 @@ function renderDashboard(){
     gcard.appendChild(el('div',{style:{fontWeight:'500',fontSize:'15px',marginBottom:'14px'}},[t('Weekly Gathering · Every Tuesday')]));
     const glist=getGatherings();
     glist.forEach((g,i)=>{
-      const first=i===0;const dlbl=g.date.toLocaleDateString(lang==='ar'?'ar-SA-u-nu-latn':'en',{weekday:'short',month:'long',day:'numeric'});
+      const first=i===0;const dlbl=g.date.toLocaleDateString(lang==='ar'?'ar-SA-u-ca-gregory-nu-latn':'en',{calendar:'gregory',weekday:'short',month:'long',day:'numeric'});
       const row=el('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'12px 0',borderBottom:first?'1px solid var(--border)':'none'}});
       const lft=el('div');
       lft.appendChild(el('div',{style:{fontSize:'11px',color:'var(--muted)',textTransform:'uppercase',fontWeight:'500',marginBottom:'3px'}},[first?t('NEXT GATHERING'):t('FOLLOWING WEEK')]));
@@ -1080,7 +1080,7 @@ function renderActivity(){
   const list=el('div',{style:{background:'var(--card)',borderRadius:'var(--radius)',border:'1px solid var(--border)',overflow:'hidden'}});
   acts.forEach((a,i)=>{
     const d=new Date(a.ts);
-    const when=d.toLocaleDateString('en',{month:'short',day:'numeric'})+' '+d.toLocaleTimeString('en',{hour:'2-digit',minute:'2-digit'});
+    const when=d.toLocaleDateString(lang==='ar'?'ar-SA-u-ca-gregory-nu-latn':'en',{calendar:'gregory',month:'short',day:'numeric'})+' '+d.toLocaleTimeString(lang==='ar'?'ar-SA-u-nu-latn':'en',{hour:'2-digit',minute:'2-digit'});
     const row=el('div',{style:{padding:'10px 16px',borderBottom:i<acts.length-1?'1px solid var(--border)':'none',display:'flex',justifyContent:'space-between',gap:'12px',alignItems:'baseline'}});
     row.appendChild(el('div',{style:{fontSize:'13px',flex:'1'}},[a.who?el('strong',{},[a.who+' ']):'',a.msg]));
     row.appendChild(el('div',{style:{fontSize:'11px',color:'var(--muted)',flexShrink:'0'}},[when]));
