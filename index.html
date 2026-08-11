@@ -827,6 +827,19 @@ function renderMembers(){
 }
 
 // Rent
+function rentStatusTable(rp){
+  const ps=el('div',{style:{marginTop:'14px',borderTop:'1px solid var(--border)',paddingTop:'14px'}});
+  ps.appendChild(el('div',{style:{fontSize:'12px',fontWeight:'500',color:'var(--muted)',marginBottom:'10px',textTransform:'uppercase'}},[t('Monthly payment status')]));
+  const monthlyAmt=rp.amount6m/N/6;
+  for(let i=0;i<6;i++){const mk=addM(rp.startMonth,i),pc=rCnt(mk);
+    const row=el('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'9px 0',borderBottom:i<5?'1px solid var(--border)':'none'}});
+    row.appendChild(el('div',{},[el('div',{style:{fontSize:'13px',fontWeight:'500'}},[mLblL(mk)]),el('div',{style:{fontSize:'11px',color:'var(--muted)',marginTop:'2px'}},[fmt(pc.p*monthlyAmt)+' / '+fmt(N*monthlyAmt)])]));
+    const badge=el('button',{class:`badge ${pc.p===N?'b-ok':pc.p>0?'b-warn':'b-danger'}`},[pc.p+'/'+N+t(' paid')]);
+    if(isAdmin)badge.addEventListener('click',()=>openPayModal('rent',mk));
+    row.appendChild(badge);ps.appendChild(row);
+  }
+  return ps;
+}
 function renderRent(){
   const w=el('div',{style:{padding:'20px',maxWidth:'860px',margin:'0 auto'}});
   const cur=rFor(nowM());
@@ -849,21 +862,14 @@ function renderRent(){
     const barWrap=el('div',{style:{height:'6px',background:'var(--border)',borderRadius:'99px',overflow:'hidden',marginBottom:'14px'}});
     barWrap.appendChild(el('div',{style:{height:'100%',width:(pct*100)+'%',background:'var(--c-ok)',borderRadius:'99px'}}));
     collBar.appendChild(barWrap);b.appendChild(collBar);}
-    // Monthly status
-    const ps=el('div');ps.appendChild(el('div',{style:{fontSize:'12px',fontWeight:'500',color:'var(--muted)',marginBottom:'10px',textTransform:'uppercase'}},[t('Monthly payment status')]));
-    for(let i=0;i<6;i++){const mk=addM(cur.startMonth,i),pc=rCnt(mk);const monthlyAmt=cur.amount6m/N/6;
-      const row=el('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'9px 0',borderBottom:i<5?'1px solid var(--border)':'none'}});
-      row.appendChild(el('div',{},[el('div',{style:{fontSize:'13px',fontWeight:'500'}},[mLblL(mk)]),el('div',{style:{fontSize:'11px',color:'var(--muted)',marginTop:'2px'}},[fmt(pc.p*monthlyAmt)+' collected of '+fmt(N*monthlyAmt)])]));
-      const badge=el('button',{class:`badge ${pc.p===N?'b-ok':pc.p>0?'b-warn':'b-danger'}`},[pc.p+'/'+N+(lang==='ar'?' دفعوا':' paid')]);
-      badge.addEventListener('click',()=>openPayModal('rent',mk));row.appendChild(badge);ps.appendChild(row);}
-    b.appendChild(ps);w.appendChild(b);}
+    w.appendChild(b);}
   const tRow=el('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'16px'}});
   tRow.appendChild(el('div',{style:{fontWeight:'500'}},[t('All rent periods')]));
   if(isAdmin){const ab=el('button',{class:'btn btn-p'},['+ '+t('Add period')]);ab.addEventListener('click',()=>{let f={a:'',m:nowM(),n:''};const prev=el('div',{style:{display:'none',background:'var(--s-info)',borderRadius:'var(--rsm)',padding:'10px',marginBottom:'12px',fontSize:'13px',color:'var(--c-info)'}});const ai=mki('number','e.g. 48000','',v=>{f.a=v;const x=+v;prev.style.display=x>0?'block':'none';if(x>0)prev.textContent=`Monthly per person: ${fmt(x/N/6)}`;});const mi=mki('month','',f.m,v=>f.m=v);mi.value=f.m;const ni=mki('text',t('Note (optional)'),'',v=>f.n=v);const btn=el('button',{class:'btn btn-p',style:{width:'100%'}},[t('Add rent period')]);btn.addEventListener('click',()=>{if(!f.a||+f.a<=0)return;upd(p=>({...p,rentPeriods:[...p.rentPeriods,{id:gid(),amount6m:+f.a,startMonth:f.m,note:f.n}]}));modalEl&&(modalEl.remove(),modalEl=null);});showModal(t('Add rent period'),el('div',[fw(t('Total 6-month rent (SAR)'),ai),fw(t('Start month'),mi),fw(t('Note (optional)'),ni),prev,btn]));});tRow.appendChild(ab);}
   w.appendChild(tRow);
   const sorted=[...state.rentPeriods].sort((a,b)=>b.startMonth.localeCompare(a.startMonth));
   if(!sorted.length)w.appendChild(el('div',{style:{color:'var(--muted)',fontSize:'13px'}},[t('No rent periods yet.')]));
-  sorted.forEach(rp=>{const c=el('div',{class:'card',style:{marginBottom:'12px',display:'flex',justifyContent:'space-between',alignItems:'center'}});const lft=el('div',[el('div',{style:{fontWeight:'500'}},[fmt(rp.amount6m)]),el('div',{style:{fontSize:'13px',color:'var(--muted)'}},[mLblL(rp.startMonth)+' → '+mLblL(addM(rp.startMonth,5))])]);if(rp.note)lft.appendChild(el('div',{style:{fontSize:'12px',color:'var(--muted)'}},[rp.note]));const rgt=el('div',{style:{display:'flex',alignItems:'center',gap:'16px'}});const rv=el('div',{style:{textAlign:'right'}});rv.appendChild(el('div',{style:{fontSize:'11px',color:'var(--muted)'}},[t('Monthly / person')]));rv.appendChild(el('div',{style:{fontSize:'16px',fontWeight:'500',color:'var(--c-info)'}},[fmt(rp.amount6m/N/6)]));rgt.appendChild(rv);if(isAdmin){rgt.appendChild(ib(()=>openEditRent(rp.id),'<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>',t('Edit')));rgt.appendChild(ib(()=>upd(p=>({...p,rentPeriods:p.rentPeriods.filter(r=>r.id!==rp.id)})),TRASH));}c.appendChild(lft);c.appendChild(rgt);w.appendChild(c);});
+  sorted.forEach(rp=>{const c=el('div',{class:'card',style:{marginBottom:'12px'}});const hdr=el('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center'}});const lft=el('div',[el('div',{style:{fontWeight:'500'}},[fmt(rp.amount6m)]),el('div',{style:{fontSize:'13px',color:'var(--muted)'}},[mLblL(rp.startMonth)+' → '+mLblL(addM(rp.startMonth,5))])]);if(rp.note)lft.appendChild(el('div',{style:{fontSize:'12px',color:'var(--muted)'}},[rp.note]));const rgt=el('div',{style:{display:'flex',alignItems:'center',gap:'16px'}});const rv=el('div',{style:{textAlign:'right'}});rv.appendChild(el('div',{style:{fontSize:'11px',color:'var(--muted)'}},[t('Monthly / person')]));rv.appendChild(el('div',{style:{fontSize:'16px',fontWeight:'500',color:'var(--c-info)'}},[fmt(rp.amount6m/N/6)]));rgt.appendChild(rv);if(isAdmin){rgt.appendChild(ib(()=>openEditRent(rp.id),'<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>',t('Edit')));rgt.appendChild(ib(()=>upd(p=>({...p,rentPeriods:p.rentPeriods.filter(r=>r.id!==rp.id)})),TRASH));}hdr.appendChild(lft);hdr.appendChild(rgt);c.appendChild(hdr);c.appendChild(rentStatusTable(rp));w.appendChild(c);});
   return w;
 }
 
