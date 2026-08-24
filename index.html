@@ -130,7 +130,13 @@ function migrate(s){
       }
       return b;
     }),
-    settlements:s.settlements||[],
+    settlements:(s.settlements||[]).map(st=>{
+      if(st.type==='pool_receive'&&!st.source){
+        const n=(st.note||'');
+        st={...st,source:/[Rr]ent|\u0625\u064a\u062c\u0627\u0631/.test(n)?'rent':/[Qq]attah|\u0642\u0637\u0629/.test(n)?'qattah':'qattah'};
+      }
+      return st;
+    }),
     rentPayments:(()=>{const rp={};Object.keys(s.rentPayments||{}).forEach(mk=>{const v=s.rentPayments[mk];if(Array.isArray(v)){const obj={};v.forEach(id=>obj[id]={status:'paid',settlementId:null});rp[mk]=obj;}else{rp[mk]=v||{};}});return rp;})(),
     qattahs:(s.qattahs||[]).map(q=>({...q,shares:(q.shares||[]).map(sh=>({...sh,settled:sh.settled!==undefined?sh.settled:(sh.paid||false),settledBy:sh.settledBy||null,cashSettlementId:sh.cashSettlementId||null,partialPaid:sh.partialPaid||0,partialIds:sh.partialIds||[]}))})),
     gathering:s.gathering?{...INIT.gathering,...s.gathering,swaps:s.gathering.swaps||{}}:INIT.gathering,
@@ -151,6 +157,7 @@ function applyDir(){
   d.setAttribute('dir',lang==='ar'?'rtl':'ltr');
 }
 // Month label respecting language
+function mLblDate(ds){try{const d=new Date(ds+'T00:00:00');return d.toLocaleDateString(lang==='ar'?'ar-SA-u-ca-gregory-nu-latn':'en',{calendar:'gregory',weekday:'short',month:'short',day:'numeric'});}catch{return ds;}}
 function mLblL(ym){try{const [y,m]=ym.split('-');const dt=new Date(+y,+m-1,1);
   return dt.toLocaleDateString(lang==='ar'?'ar-SA-u-ca-gregory-nu-latn':'en',{calendar:'gregory',month:'long',year:'numeric'});}catch{return ym;}}
 
@@ -315,6 +322,26 @@ function memberBreakdown(mid){
   return lines;
 }
 function qPool(){const col=state.qattahs.reduce((s,q)=>s+q.shares.reduce((s2,sh)=>s2+(sh.settledBy==='cash'?sh.amount:(sh.partialPaid||0)),0),0);const spent=state.expenses.reduce((s,e)=>{if(e.recurring)return s+((e.recPaid==='pool'||e.recPaid==='member')?e.amount:0);return s+e.amount;},0);return{col,spent,bal:col-spent};}
+// Rent collected/due across all periods (cash payments only count as collected)
+function rentTotals(){
+  let due=0,collected=0,owated=0;
+  state.rentPeriods.forEach(rp=>{const ms=rp.amount6m/N/6;
+    for(let i=0;i<6;i++){const mk=addM(rp.startMonth,i);if(mk>nowM())break;
+      const md=state.rentPayments[mk]||{};
+      state.members.forEach(m=>{const e=Array.isArray(md)?null:md[m.id];due+=ms;
+        // cash-paid = money actually in; settled = arranged but still owed
+        if(e&&e.status==='paid'&&e.settlementId)collected+=ms;
+        else if(e&&e.status==='partial')collected+=(e.paid||0)/1*0+ (e.paid?Math.min(e.paid,ms):0);
+      });}});
+  return {due,collected,outstanding:due-collected};
+}
+// Expenses total that actually hit the pool (paid ones)
+function expensesTotal(){
+  return state.expenses.reduce((s,e)=>{
+    if(e.recurring)return s+((e.recPaid==='pool'||e.recPaid==='member')?e.amount:0);
+    return s+e.amount;
+  },0);
+}
 function pCnt(e){if(!e.paidBy)return{p:(e.paidMembers||[]).length,t:N};const s=new Set(e.paidMembers||[]);s.add(e.paidBy);return{p:s.size,t:N};}
 const daysSince=ds=>{const d=Math.floor((Date.now()-new Date(ds+'T00:00:00'))/86400000);return d>0?d:0;};
 const rFor=ym=>state.rentPeriods.find(r=>ym>=r.startMonth&&ym<=addM(r.startMonth,5))||null;
@@ -395,25 +422,11 @@ function openPayModal(type,id){
           upd(p=>{const nm={...p,rentPayments:{...p.rentPayments,[ym]:Object.fromEntries(Object.entries(p.rentPayments[ym]||{}).filter(([k])=>k!==m.id))}};nm.settlements=nm.settlements.filter(s=>s.id!==entry.settlementId);return nm;},'undid '+m.name+' rent '+mLblL(ym)+' cash payment');
           modalEl&&(modalEl.remove(),modalEl=null);openPayModal('rent',ym);return;
         }
-        const already=entry&&entry.status==='partial'?(entry.paid||0):0;
-        const remaining=ms-already;
-        const inp=prompt('Amount received from '+m.name+' for rent '+mLblL(ym)+' (SAR).\nRemaining: '+Math.round(remaining),String(Math.round(remaining)));
-        if(inp===null)return;
-        const amt=+inp;if(!amt||amt<=0)return;
         const sid=gid();
-        if(amt>=remaining-0.5){
-          // full payment (or completes the remainder)
-          upd(p=>({...p,
-            rentPayments:{...p.rentPayments,[ym]:{...(p.rentPayments[ym]||{}),[m.id]:{status:'paid',settlementId:sid,priorPartialIds:(entry&&entry.settlementIds)||[]}}},
-            settlements:[...p.settlements,{id:sid,type:'pool_receive',memberId:m.id,amount:remaining,date:nowD(),note:t('Rent ')+mLblL(ym)+' \u2014 cash payment'}]
-          }),'recorded '+m.name+' rent '+mLblL(ym)+' cash payment ('+fmt(remaining)+')');
-        }else{
-          // partial
-          upd(p=>({...p,
-            rentPayments:{...p.rentPayments,[ym]:{...(p.rentPayments[ym]||{}),[m.id]:{status:'partial',paid:already+amt,settlementIds:[...((entry&&entry.settlementIds)||[]),sid],settlementId:null}}},
-            settlements:[...p.settlements,{id:sid,type:'pool_receive',memberId:m.id,amount:amt,date:nowD(),note:t('Rent ')+mLblL(ym)+' \u2014 partial payment'}]
-          }),'recorded '+m.name+' rent '+mLblL(ym)+' PARTIAL payment ('+fmt(amt)+' of '+fmt(ms)+')');
-        }
+        upd(p=>({...p,
+          rentPayments:{...p.rentPayments,[ym]:{...(p.rentPayments[ym]||{}),[m.id]:{status:'paid',settlementId:sid}}},
+          settlements:[...p.settlements,{id:sid,type:'pool_receive',source:'rent',memberId:m.id,amount:ms,date:nowD(),note:'Rent '+mLbl(ym)+' \u2014 cash payment'}]
+        }),'recorded '+m.name+' rent '+mLbl(ym)+' cash payment ('+fmt(ms)+')');
         modalEl&&(modalEl.remove(),modalEl=null);openPayModal('rent',ym);
       });
       row.appendChild(cBtn);tbl.appendChild(row);
@@ -494,19 +507,8 @@ function openPayModal(type,id){
           upd(p=>({...p,qattahs:p.qattahs.map(x=>x.id===id?{...x,shares:x.shares.map(s=>s.memberId===m.id?{...s,settled:false,settledBy:null,cashSettlementId:null}:s)}:x),settlements:p.settlements.filter(s=>s.id!==share.cashSettlementId)}),'undid '+m.name+' cash payment for '+q.name);
           modalEl&&(modalEl.remove(),modalEl=null);openPayModal('qattah',id);return;
         }
-        const remaining=share.amount-(share.partialPaid||0);
-        const inp=prompt('Amount received from '+m.name+' (SAR).\nRemaining: '+remaining,String(remaining));
-        if(inp===null)return;
-        const amt=+inp;
-        if(!amt||amt<=0)return;
         const sid=gid();
-        if(amt>=remaining){
-          // full: settle as cash
-          upd(p=>({...p,qattahs:p.qattahs.map(x=>x.id===id?{...x,shares:x.shares.map(s=>s.memberId===m.id?{...s,settled:true,settledBy:'cash',cashSettlementId:sid}:s)}:x),settlements:[...p.settlements,{id:sid,type:'pool_receive',memberId:m.id,amount:remaining,date:nowD(),note:q.name+' \u2014 Qattah cash payment'}]}),'recorded '+m.name+' cash payment for '+q.name+' ('+fmt(remaining)+')');
-        }else{
-          // partial
-          upd(p=>({...p,qattahs:p.qattahs.map(x=>x.id===id?{...x,shares:x.shares.map(s=>s.memberId===m.id?{...s,partialPaid:(s.partialPaid||0)+amt,partialIds:[...(s.partialIds||[]),sid]}:s)}:x),settlements:[...p.settlements,{id:sid,type:'pool_receive',memberId:m.id,amount:amt,date:nowD(),note:q.name+' \u2014 partial payment'}]}),'recorded '+m.name+' PARTIAL payment for '+q.name+' ('+fmt(amt)+' of '+fmt(share.amount)+')');
-        }
+        upd(p=>({...p,qattahs:p.qattahs.map(x=>x.id===id?{...x,shares:x.shares.map(s=>s.memberId===m.id?{...s,settled:true,settledBy:'cash',cashSettlementId:sid,partialPaid:0,partialIds:[]}:s)}:x),settlements:[...p.settlements,{id:sid,type:'pool_receive',source:'qattah',memberId:m.id,amount:share.amount,date:nowD(),note:q.name+' \u2014 Qattah cash payment'}]}),'recorded '+m.name+' cash payment for '+q.name+' ('+fmt(share.amount)+')');
         modalEl&&(modalEl.remove(),modalEl=null);openPayModal('qattah',id);
       });
       row.appendChild(cBtn);tbl.appendChild(row);
@@ -694,17 +696,33 @@ function renderDashboard(){
     [lang==='ar'?('\u26A0 '+(N-rPay.p)+' من العيال ما دفعوا إيجار '+mLblL(ym)):('\u26A0 '+(N-rPay.p)+' member'+(N-rPay.p>1?'s':'')+' have not paid rent for '+mLblL(ym))]));
   if(!isAdmin)w.appendChild(el('div',{style:{background:'var(--sec)',borderRadius:'var(--rsm)',padding:'10px 16px',marginBottom:'14px',fontSize:'13px',color:'var(--muted)',display:'flex',justifyContent:'space-between',alignItems:'center'}},
     [t('Observer mode'),el('button',{class:'btn btn-g btn-sm',onclick:openUnlockModal},['\uD83D\uDD12 '+t('Unlock')])]));
-  const cg=el('div',{style:{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:'12px',marginBottom:'20px'}});
-  const _crp=state.rentPeriods.find(r=>nowM()>=r.startMonth&&nowM()<=addM(r.startMonth,5));
-  const rentCollectedM=_crp?rCnt(nowM()).p*(_crp.amount6m/N/6):0;
-  const rentDueM=_crp?N*(_crp.amount6m/N/6):0;
-  [[t('Rent / person'),rentPP,'var(--c-info)','var(--s-info)'],[t('Expenses / person'),expPP,'#0891b2','var(--s-info)'],[t('Total due'),rentPP+expPP,'var(--c-ok)','var(--s-ok)'],[t('Qattah pool'),pool.bal,pool.bal>=0?'var(--c-purple)':'var(--c-danger)',pool.bal>=0?'var(--s-purple)':'var(--s-danger)']].forEach(([l,v,c,bg])=>{
-    const cd=el('div',{style:{background:bg,borderRadius:'var(--radius)',padding:'14px',border:`1px solid ${bg}`}});
-    cd.appendChild(el('div',{style:{fontSize:'11px',fontWeight:'500',color:'var(--muted)',textTransform:'uppercase',marginBottom:'6px'}},[l]));
-    cd.appendChild(el('div',{style:{fontSize:'17px',fontWeight:'500',color:c}},[fmt(v)]));
-    if(l==='Rent / person'&&_crp)cd.appendChild(el('div',{style:{fontSize:'11px',color:'var(--muted)',marginTop:'4px'}},[fmt(rentCollectedM)+' / '+fmt(rentDueM)+(lang==='ar'?' هذا الشهر':' this month')]));
-    cg.appendChild(cd);
-  });
+  const rt=rentTotals();
+  const expT=expensesTotal();
+  const cg=el('div',{style:{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:'14px',marginBottom:'20px'}});
+  // Card 1: Rent collected
+  {const cd=el('div',{style:{background:'var(--card)',borderRadius:'var(--radius)',padding:'18px',border:'1px solid var(--border)'}});
+    cd.appendChild(el('div',{style:{fontSize:'11px',fontWeight:'500',color:'var(--muted)',textTransform:'uppercase',marginBottom:'8px'}},['\uD83C\uDFE0 '+t('Rent')]));
+    cd.appendChild(el('div',{style:{fontSize:'24px',fontWeight:'600',color:'var(--c-info)'}},[fmt(rt.collected)]));
+    cd.appendChild(el('div',{style:{fontSize:'12px',color:'var(--muted)',marginTop:'4px'}},[(lang==='ar'?'محصّل من ':'collected of ')+fmt(rt.due)]));
+    const pct=rt.due>0?Math.min(rt.collected/rt.due,1):0;
+    const bar=el('div',{style:{height:'6px',background:'var(--sec)',borderRadius:'99px',overflow:'hidden',marginTop:'10px'}});
+    bar.appendChild(el('div',{style:{height:'100%',width:(pct*100)+'%',background:'var(--c-info)',borderRadius:'99px'}}));
+    cd.appendChild(bar);
+    if(rt.outstanding>0.5)cd.appendChild(el('div',{class:'pill',style:{display:'inline-block',fontSize:'11px',padding:'2px 8px',borderRadius:'99px',marginTop:'8px',background:'var(--s-warn)',color:'var(--c-warn)'}},[fmt(rt.outstanding)+(lang==='ar'?' متبقّي':' outstanding')]));
+    cg.appendChild(cd);}
+  // Card 2: Qattah pool available
+  {const cd=el('div',{style:{background:'linear-gradient(135deg,var(--s-info)33,var(--card))',borderRadius:'var(--radius)',padding:'18px',border:'1px solid var(--c-info)33'}});
+    cd.appendChild(el('div',{style:{fontSize:'11px',fontWeight:'500',color:'var(--muted)',textTransform:'uppercase',marginBottom:'8px'}},['\uD83D\uDCB0 '+t('Qattah pool')]));
+    cd.appendChild(el('div',{style:{fontSize:'24px',fontWeight:'600',color:pool.bal>=0?'var(--c-ok)':'var(--c-danger)'}},[fmt(pool.bal)]));
+    cd.appendChild(el('div',{style:{fontSize:'12px',color:'var(--muted)',marginTop:'4px'}},[lang==='ar'?'المتاح للصرف':'available to spend']));
+    cd.appendChild(el('div',{style:{fontSize:'11px',color:'var(--muted)',marginTop:'8px'}},[fmt(pool.col)+' − '+fmt(pool.spent)]));
+    cg.appendChild(cd);}
+  // Card 3: Expenses
+  {const cd=el('div',{style:{background:'var(--card)',borderRadius:'var(--radius)',padding:'18px',border:'1px solid var(--border)'}});
+    cd.appendChild(el('div',{style:{fontSize:'11px',fontWeight:'500',color:'var(--muted)',textTransform:'uppercase',marginBottom:'8px'}},['\uD83D\uDED2 '+t('Expenses')]));
+    cd.appendChild(el('div',{style:{fontSize:'24px',fontWeight:'600',color:'var(--c-purple)'}},[fmt(expT)]));
+    cd.appendChild(el('div',{style:{fontSize:'12px',color:'var(--muted)',marginTop:'4px'}},[state.expenses.length+(lang==='ar'?' عملية':' items')]));
+    cg.appendChild(cd);}
   w.appendChild(cg);
   const poolAlert=getPoolAlert();
   if(poolAlert)w.appendChild(el('div',{style:{background:'var(--s-danger)',border:'1px solid var(--c-danger)33',borderRadius:'var(--rsm)',padding:'12px 16px',marginBottom:'14px',fontSize:'13px',color:'var(--c-danger)',display:'flex',justifyContent:'space-between',alignItems:'center',gap:'12px'}},
@@ -741,16 +759,24 @@ function renderDashboard(){
         const swb=el('button',{class:'btn btn-sm btn-g'},['\u21C4 '+t('Swap')]);
         swb.addEventListener('click',()=>{
           const gg=state.gathering;const curIdx=gGroupIdx(g.ds);
-          const opts=gg.groups.map((nm,i)=>[String(i),nm+(i===curIdx?' (current)':'')]);
-          let pick=String(curIdx);
+          // Build list of OTHER dates (upcoming weeks) to exchange with, showing who's on each.
+          const opts=[];const dsList=[];
+          {let d=new Date(g.ds+'T00:00:00');
+            for(let k=0;k<8;k++){d.setDate(d.getDate()+7);const ds=toDS(d);const gi=gGroupIdx(ds);
+              opts.push([ds,mLblDate(ds)+' \u2014 '+gg.groups[gi]]);dsList.push(ds);}}
+          let pick=dsList[0];
           const sel2=mks(opts,v=>pick=v);sel2.value=pick;
           const ok=el('button',{class:'btn btn-p',style:{width:'100%',marginTop:'10px'}},[t('Confirm swap')]);
           ok.addEventListener('click',()=>{
-            const idxN=+pick;
-            upd(p=>({...p,gathering:{...p.gathering,swaps:{...(p.gathering.swaps||{}),[g.ds]:idxN}}}),'swapped gathering '+g.ds+' to '+gg.groups[idxN]);
+            const otherDs=pick;const otherIdx=gGroupIdx(otherDs);
+            // True exchange: this date takes other's group, other date takes this group.
+            upd(p=>({...p,gathering:{...p.gathering,swaps:{...(p.gathering.swaps||{}),[g.ds]:otherIdx,[otherDs]:curIdx}}}),
+              'swapped '+gg.groups[curIdx]+' \u21C4 '+gg.groups[otherIdx]);
             modalEl&&(modalEl.remove(),modalEl=null);
           });
-          showModal('Swap gathering pair \u00b7 '+g.ds,el('div',[fw(t('Hosting pair for this week'),sel2),ok]));
+          showModal(t('Swap gathering pair')+' \u00b7 '+mLblDate(g.ds),el('div',[
+            el('div',{style:{fontSize:'13px',color:'var(--muted)',marginBottom:'10px'}},[gg.groups[curIdx]+' '+(lang==='ar'?'يبدّل مع:':'swaps with:')]),
+            sel2,ok]));
         });
         rgt.appendChild(swb);rgt.appendChild(sb);}
       row.appendChild(lft);row.appendChild(rgt);gcard.appendChild(row);
@@ -829,8 +855,20 @@ function renderMembers(){
 // Rent
 function rentStatusTable(rp){
   const ps=el('div',{style:{marginTop:'14px',borderTop:'1px solid var(--border)',paddingTop:'14px'}});
-  ps.appendChild(el('div',{style:{fontSize:'12px',fontWeight:'500',color:'var(--muted)',marginBottom:'10px',textTransform:'uppercase'}},[t('Monthly payment status')]));
   const monthlyAmt=rp.amount6m/N/6;
+  // Collected-to-date bar for THIS period
+  {let col=0,due=0;
+   for(let i=0;i<6;i++){const mk=addM(rp.startMonth,i);if(mk>nowM())break;const pc=rCnt(mk);col+=pc.p*monthlyAmt;due+=N*monthlyAmt;}
+   const pct=due>0?Math.min(col/due,1):0;
+   const hdr=el('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'8px'}});
+   hdr.appendChild(el('div',{style:{fontSize:'12px',fontWeight:'500',color:'var(--muted)',textTransform:'uppercase'}},[t('Collected to date')]));
+   hdr.appendChild(el('div',{style:{fontSize:'13px',fontWeight:'500',color:'var(--c-ok)'}},[fmt(col)+' / '+fmt(due)]));
+   ps.appendChild(hdr);
+   const bar=el('div',{style:{height:'7px',background:'var(--sec)',borderRadius:'99px',overflow:'hidden',marginBottom:'16px'}});
+   bar.appendChild(el('div',{style:{height:'100%',width:(pct*100)+'%',background:'var(--c-ok)',borderRadius:'99px'}}));
+   ps.appendChild(bar);
+  }
+  ps.appendChild(el('div',{style:{fontSize:'12px',fontWeight:'500',color:'var(--muted)',marginBottom:'10px',textTransform:'uppercase'}},[t('Monthly payment status')]));
   for(let i=0;i<6;i++){const mk=addM(rp.startMonth,i),pc=rCnt(mk);
     const row=el('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'9px 0',borderBottom:i<5?'1px solid var(--border)':'none'}});
     row.appendChild(el('div',{},[el('div',{style:{fontSize:'13px',fontWeight:'500'}},[mLblL(mk)]),el('div',{style:{fontSize:'11px',color:'var(--muted)',marginTop:'2px'}},[fmt(pc.p*monthlyAmt)+' / '+fmt(N*monthlyAmt)])]));
