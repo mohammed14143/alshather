@@ -329,9 +329,10 @@ function rentTotals(){
     for(let i=0;i<6;i++){const mk=addM(rp.startMonth,i);if(mk>nowM())break;
       const md=state.rentPayments[mk]||{};
       state.members.forEach(m=>{const e=Array.isArray(md)?null:md[m.id];due+=ms;
-        // cash-paid = money actually in; settled = arranged but still owed
-        if(e&&e.status==='paid'&&e.settlementId)collected+=ms;
-        else if(e&&e.status==='partial')collected+=(e.paid||0)/1*0+ (e.paid?Math.min(e.paid,ms):0);
+        // Count any handled month as collected (cash-paid, settled, or legacy-paid),
+        // matching the rent tab's X/16 count. Partial counts its partial amount.
+        if(e&&e.status==='partial')collected+=Math.min(e.paid||0,ms);
+        else if(e)collected+=ms;
       });}});
   return {due,collected,outstanding:due-collected};
 }
