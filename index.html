@@ -114,7 +114,7 @@ function migrate(s){
   if(!s)return JSON.parse(JSON.stringify(INIT));
   return{
     members:(s.members||INIT.members).map(m=>({...m,plan:m.plan!==undefined?m.plan:null})),
-    planAmounts:(()=>{const q={A:200,B:75,rentLump:750,...(s.planAmounts||{})};if(!q.start)q.start=addM(nowM(),1);if(!q.landlordMonth)q.landlordMonth=nowM();if(q.landlord==null){const rps=[...(s.rentPeriods||[])].sort((a,b)=>b.startMonth.localeCompare(a.startMonth));q.landlord=rps[0]?rps[0].amount6m:12000;}return q;})(),
+    planAmounts:(()=>{const q={A:200,B:75,rentLump:750,...(s.planAmounts||{})};if(!q.start)q.start=nowM();if(!q.landlordMonth)q.landlordMonth=nowM();if(q.landlord==null){const rps=[...(s.rentPeriods||[])].sort((a,b)=>b.startMonth.localeCompare(a.startMonth));q.landlord=rps[0]?rps[0].amount6m:12000;}return q;})(),
     dues:s.dues||{},
     opening:s.opening||null,
     duesSnap:s.duesSnap||{},
@@ -1065,12 +1065,12 @@ const LL=(a,b)=>lang==='ar'?a:b;
 function mIdx(ym){const p=ym.split('-').map(Number);return p[0]*12+(p[1]-1);}
 function planMonthIdx(ym){return mIdx(ym);}
 function pa(){return state.planAmounts||{};}
-function planStartM(){return pa().start||addM(nowM(),1);}
+function planStartM(){return pa().start||nowM();}
 function planActive(){return planStartM()<=nowM();}
 function latestRP(){return [...(state.rentPeriods||[])].sort((a,b)=>b.startMonth.localeCompare(a.startMonth))[0]||null;}
 function landlordAmt(){const v=pa().landlord;if(v!=null&&v!=='')return +v;const rp=latestRP();return rp?rp.amount6m:0;}
 function landlordAnchor(){return pa().landlordMonth||(latestRP()?latestRP().startMonth:null);}
-function isLandlordMonth(mk){const a=landlordAnchor();if(!a)return false;const d=mIdx(mk)-mIdx(a);return d>=0&&d%6===0;}
+function isLandlordMonth(mk){const a=landlordAnchor();if(!a)return false;const d=mIdx(mk)-mIdx(a);return d>0&&d%6===0;}
 function nextLandlord(from){let m=from||nowM();for(let i=0;i<13;i++){if(isLandlordMonth(m))return m;m=addM(m,1);}return null;}
 function duesMonths(upTo){const s=planStartM(),e=upTo||nowM();const out=[];if(s>e)return out;let m=s,g=0;while(m<=e&&g<240){out.push(m);m=addM(m,1);g++;}return out;}
 function duesCfgLive(){const p=pa();const ll=landlordAmt();
@@ -1108,16 +1108,16 @@ function freshMode(){const o=opening();return !!(o&&o.carry===false);}
 function inNew(d){return (d||'')>=planStartM();}
 function expSpent(e){if(e.recurring)return (e.recPaid==='pool'||e.recPaid==='member')?(+e.amount||0):0;return +e.amount||0;}
 // Two pots: rent reserve (for the landlord) and expenses pool (everything else)
-function poolsNow(){
-  const q=qPool();let duesIn=0,rentIn=0;
-  duesMonths().forEach(mk=>duesFor(mk).rows.forEach(r=>{if(r.pay){duesIn+=r.amt;rentIn+=r.rentPart;}}));
-  let landlordOut=0;duesMonths().forEach(mk=>{if(isLandlordMonth(mk))landlordOut+=landlordAmt();});
+function poolsNow(before){
+  const q=qPool();let duesIn=0,rentIn=0;const upTo=before?addM(before,-1):nowM(),bef=d=>!before||(d||'')<before;
+  duesMonths(upTo).forEach(mk=>duesFor(mk).rows.forEach(r=>{if(r.pay){duesIn+=r.amt;rentIn+=r.rentPart;}}));
+  let landlordOut=0;duesMonths(upTo).forEach(mk=>{if(isLandlordMonth(mk))landlordOut+=landlordAmt();});
   let rentReserve=rentIn-landlordOut,expensesPool=q.bal+duesIn-rentIn,spent=0,extraIn=0;
   const o=opening();
   if(o){
-    spent=state.expenses.filter(e=>inNew(e.date||e.month)).reduce((s,e)=>s+expSpent(e),0);
+    spent=state.expenses.filter(e=>inNew(e.date||e.month)&&bef(e.date||e.month)).reduce((s,e)=>s+expSpent(e),0);
     const qc=new Set();state.qattahs.forEach(x=>x.shares.forEach(s=>{if(s.cashSettlementId)qc.add(s.cashSettlementId);}));
-    extraIn=state.settlements.filter(s=>s.type==='pool_receive'&&s.source!=='rent'&&!qc.has(s.id)&&inNew(s.date)).reduce((a,s)=>a+(+s.amount||0),0);
+    extraIn=state.settlements.filter(s=>s.type==='pool_receive'&&s.source!=='rent'&&!qc.has(s.id)&&inNew(s.date)&&bef(s.date)).reduce((a,s)=>a+(+s.amount||0),0);
     rentReserve=(+o.rent||0)+rentIn-landlordOut;
     expensesPool=(+o.exp||0)+duesIn-rentIn-spent+extraIn;
   }
@@ -1145,8 +1145,8 @@ function planForecast(months){
   const monthlyPool=cA*c.A+cB*c.B;
   const buffer=monthlyPool-recM-cA*c.rentPM;
   const pools=poolsNow();
-  const startBal=pools.total;
-  const first=planStartM()>nowM()?planStartM():addM(nowM(),1);
+  const first=planStartM()>nowM()?planStartM():nowM();
+  const startBal=poolsNow(first).total;
   let bal=startBal;const rows=[];
   for(let i=0;i<months;i++){
     const mk=addM(first,i);
@@ -1157,7 +1157,7 @@ function planForecast(months){
     bal+=income-expenses;
     rows.push({mk,income,expenses,bal,isRent,inMonthly:monthlyPool,inLump,outFixed,outRent});
   }
-  return {cA,cB,cNone,names,monthlyPool,recM,rec,buffer,rows,startBal,cfg:c,pools,
+  return {cA,cB,cNone,names,monthlyPool,recM,rec,buffer,rows,startBal,first,cfg:c,pools,
     rentLumps6mo:cB*c.rentLump,nextRent:rows.find(r=>r.isRent)||null,
     lowest:rows.reduce((m,r)=>r.bal<m.bal?r:m,rows[0]||{bal:startBal})};
 }
@@ -1304,8 +1304,8 @@ function renderPlanSection(){
   cw.querySelectorAll('.pc-hit').forEach(h=>{const i=+h.getAttribute('data-i');h.addEventListener('mouseenter',()=>show(i));h.addEventListener('click',()=>show(i));});
   box.appendChild(det);
   box.appendChild(el('div',{style:{fontSize:'11.5px',color:'var(--muted)',marginTop:'8px',lineHeight:'1.6'}},[
-    L('اضغط على أي شهر لتشوف التفاصيل. الرصيد يبدأ من مجموع احتياطي الإيجار ومحفظة المصروفات الآن ('+planFmt(f.startBal)+')'+(f.nextRent?'، ودفع الإيجار للمالك محسوب في '+mLblL(f.nextRent.mk):'')+'.',
-      'Tap a month for details. Balance starts from rent reserve + expenses pool today ('+planFmt(f.startBal)+')'+(f.nextRent?'; the landlord payment is in '+mLblL(f.nextRent.mk):'')+'.')]));
+    L('اضغط على أي شهر لتشوف التفاصيل. الرصيد يبدأ من مجموع احتياطي الإيجار ومحفظة المصروفات في بداية '+mLblL(f.first)+' ('+planFmt(f.startBal)+')'+(f.nextRent?'، ودفع الإيجار للمالك محسوب في '+mLblL(f.nextRent.mk):'')+'.',
+      'Tap a month for details. Balance starts from rent reserve + expenses pool at the start of '+mLblL(f.first)+' ('+planFmt(f.startBal)+')'+(f.nextRent?'; the landlord payment is in '+mLblL(f.nextRent.mk):'')+'.')]));
 
   // Table view
   const tv=el('details',{style:{marginTop:'10px'}});
@@ -1354,10 +1354,10 @@ function renderPlanSection(){
     sg.appendChild(field('B',L('الطريقة الثانية / شهر','Option B / month'),'number',c.B));
     sg.appendChild(field('rentLump',L('إيجار الثانية كل ٦ أشهر','Option B rent every 6 mo'),'number',c.rentLump));
     sg.appendChild(field('landlord',L('مبلغ الإيجار للمالك (٦ أشهر)','Landlord rent (6 months)'),'number',landlordAmt()));
-    sg.appendChild(field('landlordMonth',L('شهر دفع الإيجار للمالك','Landlord payment month'),'month',landlordAnchor()||nowM()));
+    sg.appendChild(field('landlordMonth',L('آخر شهر دُفع فيه الإيجار للمالك','Last month rent was paid to the landlord'),'month',landlordAnchor()||nowM()));
     sg.appendChild(field('start',L('بداية الخطة (أول شهر)','Plan starts (first month)'),'month',c.start));
     st.appendChild(sg);
-    st.appendChild(el('div',{style:{fontSize:'11.5px',color:'var(--muted)',marginTop:'8px'}},[L('دفع الإيجار للمالك يتكرر كل ٦ أشهر من الشهر المحدد. الدفعات الشهرية تبدأ من «بداية الخطة».','The landlord payment repeats every 6 months from the set month. Monthly dues start from “Plan starts”.')]));
+    st.appendChild(el('div',{style:{fontSize:'11.5px',color:'var(--muted)',marginTop:'8px'}},[L('الدفعة القادمة للمالك بعد ٦ أشهر من آخر دفعة، وتتكرر كل ٦ أشهر. الدفعات الشهرية تبدأ من «بداية الخطة».','The next landlord payment is 6 months after the last one, then every 6 months. Monthly dues start from “Plan starts”.')]));
     box.appendChild(st);
   }
   return box;
