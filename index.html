@@ -116,6 +116,7 @@ function migrate(s){
     members:(s.members||INIT.members).map(m=>({...m,plan:m.plan!==undefined?m.plan:null})),
     planAmounts:(()=>{const q={A:200,B:75,rentLump:750,...(s.planAmounts||{})};if(!q.start)q.start=addM(nowM(),1);if(!q.landlordMonth)q.landlordMonth=nowM();if(q.landlord==null){const rps=[...(s.rentPeriods||[])].sort((a,b)=>b.startMonth.localeCompare(a.startMonth));q.landlord=rps[0]?rps[0].amount6m:12000;}return q;})(),
     dues:s.dues||{},
+    opening:s.opening||null,
     duesSnap:s.duesSnap||{},
     treasurer:s.treasurer!==undefined?s.treasurer:'m1',
     adminHash:s.adminHash||null,
@@ -276,18 +277,18 @@ async function upd(fn,logMsg){
 
 // Business logic
 function calcBal(){
-  const b={};state.members.forEach(m=>b[m.id]=0);
-  state.expenses.filter(e=>e.paidBy&&!e.recurring&&e.model!=='pool').forEach(({amount,paidBy,paidMembers})=>{
+  const b={};state.members.forEach(m=>b[m.id]=0);const _F=freshMode(),_k=d=>!_F||inNew(d);
+  state.expenses.filter(e=>e.paidBy&&!e.recurring&&e.model!=='pool'&&_k(e.date||e.month)).forEach(({amount,paidBy,paidMembers})=>{
     const sh=amount/N;const paid=new Set(paidMembers||[]);paid.add(paidBy);
     const unpaidCount=state.members.filter(m=>!paid.has(m.id)).length;
     b[paidBy]+=unpaidCount*sh;
   });
   // Pool-model expense paid by a member -> the group owes him the full amount (his credit)
-  state.expenses.forEach(e=>{if(e.model==='pool'&&!e.recurring&&e.paidBy)b[e.paidBy]+=+e.amount;});
+  state.expenses.forEach(e=>{if(e.model==='pool'&&!e.recurring&&e.paidBy&&_k(e.date||e.month))b[e.paidBy]+=+e.amount;});
   // Recurring expense paid by a member -> pool owes them the full amount
-  state.expenses.forEach(e=>{if(e.recurring&&e.recPaid==='member'&&e.recPaidBy)b[e.recPaidBy]+=e.amount;});
-  state.qattahs.forEach(q=>{q.shares.forEach(s=>{b[s.memberId]-=s.amount;});});
-  state.settlements.forEach(s=>{
+  state.expenses.forEach(e=>{if(e.recurring&&e.recPaid==='member'&&e.recPaidBy&&_k(e.month))b[e.recPaidBy]+=e.amount;});
+  state.qattahs.forEach(q=>{if(!_k(q.month))return;q.shares.forEach(s=>{b[s.memberId]-=s.amount;});});
+  state.settlements.forEach(s=>{if(!_k(s.date))return;
     if(s.type==='pool_receive')b[s.memberId]+=+s.amount;
     else if(s.type==='pool_pay')b[s.memberId]-=+s.amount;
     else if(s.type==='member_owes')b[s.memberId]-=+s.amount;
@@ -296,7 +297,7 @@ function calcBal(){
   // Rent: evaluate EVERY period (past + active), each month up to the current month.
   // A finished period whose months are unpaid stays overdue in the balance.
   const _ps=planStartM();
-  state.rentPeriods.forEach(_rp=>{if(_rp.startMonth>=_ps)return;const _ms=_rp.amount6m/N/6;for(let i=0;i<6;i++){const mk=addM(_rp.startMonth,i);if(mk>nowM())break;const md=state.rentPayments[mk]||{};state.members.forEach(m=>{const e=Array.isArray(md)?null:md[m.id];if(e?.status==='paid'&&!e?.settlementId)return;b[m.id]-=_ms;});}});
+  state.rentPeriods.forEach(_rp=>{if(_rp.startMonth>=_ps||_F)return;const _ms=_rp.amount6m/N/6;for(let i=0;i<6;i++){const mk=addM(_rp.startMonth,i);if(mk>nowM())break;const md=state.rentPayments[mk]||{};state.members.forEach(m=>{const e=Array.isArray(md)?null:md[m.id];if(e?.status==='paid'&&!e?.settlementId)return;b[m.id]-=_ms;});}});
   // Monthly dues (plan): each due is owed; cash payments bring money in; credit payments use his credit
   duesMonths().forEach(mk=>duesFor(mk).rows.forEach(r=>{b[r.m]-=r.amt;if(r.pay&&r.pay.how==='cash')b[r.m]+=r.amt;}));
   return b;
@@ -305,18 +306,18 @@ function autoSettleQattah(ns,memberId,reason){
   return{...ns,qattahs:ns.qattahs.map(q=>({...q,shares:q.shares.map(sh=>sh.memberId===memberId&&!sh.settled?{...sh,settled:true,settledBy:reason||'expense'}:sh)}))};
 }
 function memberBreakdown(mid){
-  const lines=[];
-  state.expenses.filter(e=>e.paidBy===mid&&e.model==='pool'&&!e.recurring).forEach(e=>{lines.push({label:LL('دفع عن المجموعة: ','Paid for the group: ')+e.name+' ('+(e.date||mLblL(e.month))+')',amount:+e.amount,tag:'fronted'});});
-  state.expenses.filter(e=>e.paidBy===mid&&e.model!=='pool').forEach(e=>{
+  const lines=[];const _F=freshMode(),_k=d=>!_F||inNew(d);
+  state.expenses.filter(e=>e.paidBy===mid&&e.model==='pool'&&!e.recurring&&_k(e.date||e.month)).forEach(e=>{lines.push({label:LL('دفع عن المجموعة: ','Paid for the group: ')+e.name+' ('+(e.date||mLblL(e.month))+')',amount:+e.amount,tag:'fronted'});});
+  state.expenses.filter(e=>e.paidBy===mid&&e.model!=='pool'&&_k(e.date||e.month)).forEach(e=>{
     const sh=e.amount/N;const paid=new Set(e.paidMembers||[]);paid.add(mid);
     const unpaid=state.members.filter(m=>!paid.has(m.id));
     const direct=state.members.filter(m=>m.id!==mid&&paid.has(m.id));
     if(unpaid.length>0){const lbl=e.name+(e.month?' ('+mLblL(e.month)+')':e.date?' ('+e.date+')':'');lines.push({label:t('Fronted: ')+lbl+' ('+unpaid.length+t(' unpaid)'),amount:unpaid.length*sh,tag:'fronted'});}
     if(direct.length>0){const lbl=e.name+(e.month?' ('+mLblL(e.month)+')':e.date?' ('+e.date+')':'');lines.push({label:t('Fronted: ')+lbl+' ('+direct.length+' paid directly)',amount:direct.length*sh,tag:'settled'});}
   });
-  state.expenses.forEach(e=>{if(e.recurring&&e.recPaid==='member'&&e.recPaidBy===mid){lines.push({label:t('Fronted: ')+e.name+' ('+mLblL(e.month)+')',amount:e.amount,tag:'fronted'});}});
-  state.qattahs.forEach(q=>{const s=q.shares.find(x=>x.memberId===mid);if(s){const lbl=s.settled?(s.settledBy==='cash'?q.name+LL(' ✓ نقداً',' ✔ cash paid'):q.name+LL(' ✓ مُصفّى',' ✓ settled')):((s.partialPaid||0)>0?q.name+' (partial: '+fmt(s.partialPaid)+' paid)':q.name+LL(' (ما دفع)',' (unsettled)'));lines.push({label:lbl,amount:-s.amount,tag:s.settled?'qsettled':'qattah'});}});
-  state.rentPeriods.forEach(_rp=>{if(_rp.startMonth>=planStartM())return;const _ms=_rp.amount6m/N/6;for(let i=0;i<6;i++){const mk=addM(_rp.startMonth,i);if(mk>nowM())break;const md=state.rentPayments[mk]||{};const e=Array.isArray(md)?null:md[mid];let lbl,amt,tag;
+  state.expenses.forEach(e=>{if(e.recurring&&e.recPaid==='member'&&e.recPaidBy===mid&&_k(e.month)){lines.push({label:t('Fronted: ')+e.name+' ('+mLblL(e.month)+')',amount:e.amount,tag:'fronted'});}});
+  state.qattahs.forEach(q=>{if(!_k(q.month))return;const s=q.shares.find(x=>x.memberId===mid);if(s){const lbl=s.settled?(s.settledBy==='cash'?q.name+LL(' ✓ نقداً',' ✔ cash paid'):q.name+LL(' ✓ مُصفّى',' ✓ settled')):((s.partialPaid||0)>0?q.name+' (partial: '+fmt(s.partialPaid)+' paid)':q.name+LL(' (ما دفع)',' (unsettled)'));lines.push({label:lbl,amount:-s.amount,tag:s.settled?'qsettled':'qattah'});}});
+  state.rentPeriods.forEach(_rp=>{if(_rp.startMonth>=planStartM()||_F)return;const _ms=_rp.amount6m/N/6;for(let i=0;i<6;i++){const mk=addM(_rp.startMonth,i);if(mk>nowM())break;const md=state.rentPayments[mk]||{};const e=Array.isArray(md)?null:md[mid];let lbl,amt,tag;
     if(!e){lbl=t('Rent ')+mLblL(mk)+t(' (unpaid)');amt=-_ms;tag='qattah';}
     else if(e.status==='partial'){lbl=t('Rent ')+mLblL(mk)+' (partial: '+fmt(e.paid||0)+' paid)';amt=-_ms;tag='qattah';}
     else if(e.status==='settled'){lbl=t('Rent ')+mLblL(mk)+LL(' ✓ مُصفّى',' ✓ settled');amt=-_ms;tag='qsettled';}
@@ -327,7 +328,7 @@ function memberBreakdown(mid){
     if(!r.pay)lines.push({label:base+LL(' (ما دفع)',' (unpaid)'),amount:-r.amt,tag:'qattah'});
     else if(r.pay.how==='cash')lines.push({label:base+LL(' ✓ نقداً',' ✓ cash'),amount:0,tag:'qsettled'});
     else lines.push({label:base+LL(' ✓ من رصيده',' ✓ from credit'),amount:-r.amt,tag:'qsettled'});}));
-  state.settlements.forEach(s=>{
+  state.settlements.forEach(s=>{if(!_k(s.date))return;
     if(s.type==='pool_receive'&&s.memberId===mid)lines.push({label:t('Paid to Group Account (')+s.date+')',amount:+s.amount,tag:'settlement'});
     if(s.type==='pool_pay'&&s.memberId===mid)lines.push({label:t('Received from Group Account (')+s.date+')',amount:-s.amount,tag:'settlement'});
     if(s.type==='member_owes'&&s.memberId===mid){const dd=daysSince(s.date);lines.push({label:t('Owes: ')+(s.note||'manual debt')+' ('+s.date+(dd>0?' \u00b7 '+dd+'d ago':'')+')',amount:-s.amount,tag:'qattah'});}
@@ -739,6 +740,7 @@ function renderDashboard(){
   if(!isAdmin)w.appendChild(el('div',{style:{background:'var(--sec)',borderRadius:'var(--rsm)',padding:'10px 16px',marginBottom:'14px',fontSize:'13px',color:'var(--muted)',display:'flex',justifyContent:'space-between',alignItems:'center'}},
     [t('Observer mode'),el('button',{class:'btn btn-g btn-sm',onclick:openUnlockModal},['\uD83D\uDD12 '+t('Unlock')])]));
   const pools=poolsNow(),fc=planForecast(12),cm=planActive()?nowM():planStartM(),mt=duesMonthTotals(cm);
+  {const op=openingPrompt();if(op)w.appendChild(op);}
   const cg=el('div',{style:{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(200px,1fr))',gap:'14px',marginBottom:'20px'}});
   const card=(icon,lbl,val,color,subs,extra)=>{const cd=el('div',{style:{background:'var(--card)',borderRadius:'var(--radius)',padding:'18px',border:'1px solid var(--border)',cursor:'pointer',minWidth:'0'},onclick:()=>{tab='dues';render();}});
     cd.appendChild(el('div',{style:{fontSize:'12px',fontWeight:'500',color:'var(--muted)',marginBottom:'8px'}},[icon+' '+lbl]));
@@ -1099,13 +1101,27 @@ function setDuePay(mk,mid,how){
     dues[mk]=mm;return {...p,dues};},
     how?('recorded '+r.name+' '+mk+' '+(how==='cash'?'cash':'from credit')+' '+Math.round(r.amt)):('undid '+r.name+' '+mk+' payment'));
 }
+// New chapter: an opening balance entered by the treasurer replaces the old Qattah-round bookkeeping.
+// Everything dated before the plan start month belongs to the old chapter and is summarised by that number.
+function opening(){return state.opening&&state.opening.set?state.opening:null;}
+function freshMode(){const o=opening();return !!(o&&o.carry===false);}
+function inNew(d){return (d||'')>=planStartM();}
+function expSpent(e){if(e.recurring)return (e.recPaid==='pool'||e.recPaid==='member')?(+e.amount||0):0;return +e.amount||0;}
 // Two pots: rent reserve (for the landlord) and expenses pool (everything else)
 function poolsNow(){
   const q=qPool();let duesIn=0,rentIn=0;
   duesMonths().forEach(mk=>duesFor(mk).rows.forEach(r=>{if(r.pay){duesIn+=r.amt;rentIn+=r.rentPart;}}));
   let landlordOut=0;duesMonths().forEach(mk=>{if(isLandlordMonth(mk))landlordOut+=landlordAmt();});
-  const rentReserve=rentIn-landlordOut,expensesPool=q.bal+duesIn-rentIn;
-  return {rentReserve,expensesPool,total:rentReserve+expensesPool,duesIn,rentIn,landlordOut};
+  let rentReserve=rentIn-landlordOut,expensesPool=q.bal+duesIn-rentIn,spent=0,extraIn=0;
+  const o=opening();
+  if(o){
+    spent=state.expenses.filter(e=>inNew(e.date||e.month)).reduce((s,e)=>s+expSpent(e),0);
+    const qc=new Set();state.qattahs.forEach(x=>x.shares.forEach(s=>{if(s.cashSettlementId)qc.add(s.cashSettlementId);}));
+    extraIn=state.settlements.filter(s=>s.type==='pool_receive'&&s.source!=='rent'&&!qc.has(s.id)&&inNew(s.date)).reduce((a,s)=>a+(+s.amount||0),0);
+    rentReserve=(+o.rent||0)+rentIn-landlordOut;
+    expensesPool=(+o.exp||0)+duesIn-rentIn-spent+extraIn;
+  }
+  return {rentReserve,expensesPool,total:rentReserve+expensesPool,duesIn,rentIn,landlordOut,spent,extraIn,opening:o};
 }
 function nextPlanLandlord(){return nextLandlord(planActive()?nowM():planStartM());}
 function freqLbl(n){n=+n||1;return n===1?LL('كل شهر','Monthly'):n===2?LL('كل شهرين','Every 2 months'):LL('كل '+n+' أشهر','Every '+n+' months');}
@@ -1368,6 +1384,49 @@ function renderQattah(){
 }
 
 // Balances
+// ── New chapter: opening balance ──
+function openOpening(){
+  if(!isAdmin){openUnlockModal(openOpening);return;}
+  const o=state.opening||{};const f={exp:o.set?o.exp:'',rent:o.set?o.rent:0,carry:o.set?o.carry!==false:true};
+  const c=el('div');
+  c.appendChild(el('div',{style:{fontSize:'13px',color:'var(--muted)',lineHeight:'1.7',marginBottom:'14px'}},[
+    LL('أدخل المبالغ الموجودة فعلاً الآن. من '+mLblL(planStartM())+' يبدأ الحساب منها، وكل الحسابات القديمة (جولات القطة والمصروفات قبلها) تبقى في السجل بدون ما تأثر على المحفظة.',
+       'Enter the money you actually hold now. From '+mLblL(planStartM())+' everything is calculated from these numbers; old Qattah rounds and earlier expenses stay in the history without affecting the pots.')]));
+  const num=(id,val,cb)=>{const i=document.createElement('input');i.type='number';i.id=id;i.value=val;i.inputMode='decimal';
+    Object.assign(i.style,{width:'100%',padding:'10px 12px',borderRadius:'var(--rsm)',border:'1px solid var(--border)',background:'var(--card)',color:'var(--text)',fontSize:'16px'});
+    i.addEventListener('input',()=>cb(i.value));return i;};
+  c.appendChild(fw(LL('محفظة المصروفات الآن (الكاش الموجود)','Expenses pool now (cash on hand)'),num('open-exp',f.exp,v=>f.exp=v)));
+  c.appendChild(fw(LL('احتياطي الإيجار الآن','Rent reserve now'),num('open-rent',f.rent,v=>f.rent=v)));
+  c.appendChild(el('div',{style:{fontSize:'12px',color:'var(--muted)',margin:'-6px 0 14px'}},[LL('عادةً صفر، لأن إيجار هذه الفترة يُدفع للمالك هذا الشهر.','Usually zero, since this period’s rent goes to the landlord this month.')]));
+  const cw=el('div',{style:{background:'var(--sec)',borderRadius:'var(--rsm)',padding:'12px',marginBottom:'16px'}});
+  cw.appendChild(el('div',{style:{fontSize:'13px',fontWeight:'600',marginBottom:'8px'}},[LL('أرصدة العيال القديمة','Members’ old balances')]));
+  const opt=(val,lbl,sub)=>{const l=el('label',{style:{display:'flex',gap:'8px',alignItems:'flex-start',cursor:'pointer',marginBottom:'8px',fontSize:'13px'}});
+    const r=el('input',{type:'radio',name:'open-carry'});Object.assign(r.style,{width:'auto',flex:'0 0 auto',margin:'3px 0 0',padding:'0'});r.checked=f.carry===val;r.addEventListener('change',()=>{f.carry=val;});
+    l.appendChild(r);l.appendChild(el('div',{},[el('div',{style:{fontWeight:'500'}},[lbl]),el('div',{style:{fontSize:'12px',color:'var(--muted)'}},[sub])]));return l;};
+  cw.appendChild(opt(true,LL('ترحيلها','Carry them over'),LL('اللي عليه دين قديم يبقى عليه، واللي له رصيد يبقى له.','Old debts and credits stay on each member.')));
+  cw.appendChild(opt(false,LL('تصفيرها والبدء من جديد','Reset to zero'),LL('الكل يبدأ من صفر. الحسابات القديمة تبقى في السجل للاطلاع فقط.','Everyone starts at zero. Old records stay in the history for reference only.')));
+  c.appendChild(cw);
+  const err=el('div',{style:{color:'var(--c-danger)',fontSize:'12.5px',marginBottom:'8px'}});c.appendChild(err);
+  const b=el('button',{class:'btn btn-p',style:{width:'100%'}},[LL('ابدأ الفصل الجديد','Start the new chapter')]);
+  b.addEventListener('click',()=>{const e=+f.exp,r=+f.rent;
+    if(f.exp===''||isNaN(e)){err.textContent=LL('أدخل مبلغ محفظة المصروفات (حتى لو صفر).','Enter the expenses pool amount (zero is fine).');return;}
+    if(isNaN(r)){err.textContent=LL('مبلغ احتياطي الإيجار غير صحيح.','Rent reserve amount is not valid.');return;}
+    upd(p=>({...p,opening:{set:true,exp:e,rent:r,carry:f.carry,date:nowD(),from:planStartM()}}),'set opening balance: expenses '+e+', rent '+r+(f.carry?'':' (balances reset)'));
+    modalEl&&(modalEl.remove(),modalEl=null);});
+  c.appendChild(b);
+  showModal(LL('بداية الفصل الجديد','Start the new chapter'),c);
+}
+function openingPrompt(){
+  if(opening()||!isAdmin)return null;
+  const q=qPool();
+  const x=el('div',{style:{background:'var(--s-info)',border:'1px solid var(--c-info)33',borderRadius:'var(--radius)',padding:'14px 16px',marginBottom:'14px',display:'flex',justifyContent:'space-between',alignItems:'center',gap:'12px',flexWrap:'wrap'}});
+  x.appendChild(el('div',{style:{minWidth:'0',flex:'1 1 240px'}},[
+    el('div',{style:{fontWeight:'600',fontSize:'14px',color:'var(--c-info)'}},[LL('ابدأ الفصل الجديد برصيد حقيقي','Start the new chapter with a real balance')]),
+    el('div',{style:{fontSize:'12.5px',color:'var(--text)',marginTop:'3px',lineHeight:'1.6'}},[LL('الرقم الحالي ('+planFmt(q.bal)+') محسوب من جولات القطة القديمة وما يطابق الصندوق. أدخل الموجود فعلاً.','The current figure ('+planFmt(q.bal)+') comes from the old Qattah rounds and doesn’t match the cash box. Enter what you actually hold.')])]));
+  const b=el('button',{class:'btn btn-p btn-sm'},[LL('إدخال الرصيد','Enter balance')]);b.addEventListener('click',openOpening);x.appendChild(b);
+  return x;
+}
+
 // ── Monthly dues tab ──
 let duesMonth=null;
 function renderDues(){
@@ -1390,6 +1449,7 @@ function renderDues(){
   mid.appendChild(el('div',{style:{fontSize:'12px',color:'var(--muted)'}},[isFuture?LL('شهر قادم — تقدر تسجّل الدفع المبكر','Upcoming month — early payments allowed'):LL('تُدفع أول الشهر','Due on the 1st')]));
   nav.appendChild(prev);nav.appendChild(mid);nav.appendChild(next);
   w.appendChild(nav);
+  {const op=openingPrompt();if(op)w.appendChild(op);}
 
   // Summary
   const sum=el('div',{class:'card',style:{marginBottom:'14px'}});
@@ -1410,6 +1470,10 @@ function renderDues(){
   pr.appendChild(pt('🏠 '+LL('احتياطي الإيجار','Rent reserve'),pools.rentReserve,nl?LL('للمالك ','Landlord ')+mLblL(nl)+' · '+planFmt(landlordAmt()):''));
   pr.appendChild(pt('🛒 '+LL('محفظة المصروفات','Expenses pool'),pools.expensesPool,LL('المتاح للمصروفات','Available for expenses')));
   sum.appendChild(pr);
+  if(pools.opening){const ol=el('div',{style:{fontSize:'11.5px',color:'var(--muted)',marginTop:'10px',display:'flex',justifyContent:'space-between',gap:'8px',flexWrap:'wrap'}});
+    ol.appendChild(el('span',{},[LL('رصيد البداية: ','Opening balance: ')+planFmt(pools.opening.exp)+LL(' مصروفات · ',' expenses · ')+planFmt(pools.opening.rent)+LL(' إيجار',' rent')+(pools.opening.carry===false?LL(' · أرصدة العيال صُفّرت',' · member balances reset'):'')]));
+    if(isAdmin){const eb=el('button',{class:'btn btn-g btn-sm',style:{padding:'2px 10px'}},[LL('تعديل','Edit')]);eb.addEventListener('click',openOpening);ol.appendChild(eb);}
+    sum.appendChild(ol);}
   w.appendChild(sum);
 
   if(d.isRent)w.appendChild(el('div',{style:{background:'var(--s-info)',color:'var(--c-info)',borderRadius:'var(--rsm)',padding:'10px 12px',fontSize:'13px',marginBottom:'12px'}},
