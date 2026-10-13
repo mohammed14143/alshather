@@ -745,6 +745,7 @@ function renderDashboard(){
     [t('Observer mode'),el('button',{class:'btn btn-g btn-sm',onclick:openUnlockModal},['\uD83D\uDD12 '+t('Unlock')])]));
   const pools=poolsNow(),fc=planForecast(12),cm=planActive()?nowM():planStartM(),mt=duesMonthTotals(cm);
   {const op=openingPrompt();if(op)w.appendChild(op);}
+  w.appendChild(cashHero(pools,bal));
   const cg=el('div',{style:{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(200px,1fr))',gap:'14px',marginBottom:'20px'}});
   const card=(icon,lbl,val,color,subs,extra)=>{const cd=el('div',{style:{background:'var(--card)',borderRadius:'var(--radius)',padding:'18px',border:'1px solid var(--border)',cursor:'pointer',minWidth:'0'},onclick:()=>{tab='dues';render();}});
     cd.appendChild(el('div',{style:{fontSize:'12px',fontWeight:'500',color:'var(--muted)',marginBottom:'8px'}},[icon+' '+lbl]));
@@ -753,11 +754,9 @@ function renderDashboard(){
     if(extra)cd.appendChild(extra);cg.appendChild(cd);};
   {const barW=el('div',{style:{height:'6px',background:'var(--sec)',borderRadius:'99px',overflow:'hidden',marginTop:'10px'}});
    barW.appendChild(el('div',{style:{height:'100%',width:(mt.due?Math.min(mt.got/mt.due,1)*100:0)+'%',background:'var(--c-ok)',borderRadius:'99px'}}));
-   card('📅',LL('دفعات ','Dues · ')+mLblL(cm),planFmt(mt.got),'var(--text)',[LL('من ','of ')+planFmt(mt.due)+' · '+(mt.count-mt.unpaid)+'/'+mt.count+LL(' دفعوا',' paid'),splitLine(mt),!planActive()?LL('الخطة تبدأ أول ','Plan starts ')+mLblL(planStartM()):''],barW);}
-  {const nl=nextPlanLandlord();card('🏠',LL('احتياطي الإيجار','Rent reserve'),planFmt(pools.rentReserve),pools.rentReserve<0?'var(--c-danger)':'var(--c-info)',[nl?LL('الدفعة القادمة للمالك ','Next landlord payment ')+mLblL(nl)+' · '+planFmt(landlordAmt()):'']);}
-  card('🛒',LL('محفظة المصروفات','Expenses pool'),planFmt(pools.expensesPool),pools.expensesPool<0?'var(--c-danger)':'var(--c-ok)',[LL('المتاح للمصروفات','Available for expenses'),membersCredit(bal)>0.5?creditLine(membersCredit(bal)):'',fc.cA+fc.cB>0?LL('المتوقع تحصيله شهرياً ','Expected monthly ')+planFmt(fc.monthlyPool):'']);
+   card('📅',LL('دفعات ','Dues · ')+mLblL(cm),(mt.count-mt.unpaid)+'/'+mt.count+LL(' دفعوا',' paid'),'var(--text)',[LL('المطلوب ','Due ')+planFmt(mt.due)+' · '+LL('سُجّل ','recorded ')+planFmt(mt.got),splitLine(mt),!planActive()?LL('الخطة تبدأ أول ','Plan starts ')+mLblL(planStartM()):''],barW);}
+  if(fc.cA+fc.cB>0)card('📈',LL('المتوقع شهرياً','Expected monthly'),planFmt(fc.monthlyPool),'var(--text)',[LL('من القطة الشهرية لـ ','From monthly dues of ')+(fc.cA+fc.cB)+LL(' عضو',' members')]);
   w.appendChild(cg);
-  {const cb=cashBox(pools);cb.style.marginBottom='20px';cb.style.marginTop='-6px';w.appendChild(cb);}
   if(pools.expensesPool<0)w.appendChild(el('div',{style:{background:'var(--s-danger)',border:'1px solid var(--c-danger)33',borderRadius:'var(--rsm)',padding:'12px 16px',marginBottom:'14px',fontSize:'13px',color:'var(--c-danger)'}},['⚠ '+LL('محفظة المصروفات ناقصة ','Expenses pool is short by ')+planFmt(-pools.expensesPool)]));
   const rentAlert=getRentAlert();
   if(rentAlert&&!planActive()){
@@ -1160,6 +1159,26 @@ function nextPlanLandlord(){return nextLandlord(planActive()?nowM():planStartM()
 function freqLbl(n){n=+n||1;return n===1?LL('كل شهر','Monthly'):n===2?LL('كل شهرين','Every 2 months'):LL('كل '+n+' أشهر','Every '+n+' months');}
 function duesMonthTotals(mk){const d=duesFor(mk);let due=0,got=0,gotCash=0,gotCredit=0,np=0;d.rows.forEach(r=>{due+=r.amt;if(r.pay){got+=r.amt;if(r.pay.how==='credit')gotCredit+=r.amt;else gotCash+=r.amt;}else np++;});return {due,got,gotCash,gotCredit,unpaid:np,count:d.rows.length,isRent:d.isRent};}
 function splitLine(tt){return tt.got>0?LL('نقداً ','Cash ')+planFmt(tt.gotCash)+' \u00b7 '+LL('من الرصيد ','From credit ')+planFmt(tt.gotCredit):'';}
+function cashHero(pools,bal){
+  const T=pools.total,R=pools.rentReserve,E=pools.expensesPool,mc=membersCredit(bal);
+  const h=el('div',{style:{background:'var(--card)',borderRadius:'var(--radius)',padding:'20px',border:'1px solid var(--border)',marginBottom:'14px',cursor:'pointer'},onclick:()=>{tab='dues';render();}});
+  h.appendChild(el('div',{style:{fontSize:'13px',fontWeight:'500',color:'var(--muted)'}},['💵 '+LL('الرصيد في الصندوق','Cash in the box')]));
+  h.appendChild(el('div',{style:{fontSize:'38px',fontWeight:'800',lineHeight:'1.2',margin:'4px 0 2px',color:T<0?'var(--c-danger)':'var(--text)'}},[planFmt(T)]));
+  h.appendChild(el('div',{style:{fontSize:'12px',color:'var(--muted)'}},[LL('الفلوس الموجودة فعلياً — يتغيّر بس لما يدخل نقد أو يُصرف منه','Real money held — changes only when cash comes in or is spent')]));
+  const pos=Math.max(R,0)+Math.max(E,0);
+  if(pos>0){const bar=el('div',{style:{display:'flex',height:'10px',borderRadius:'99px',overflow:'hidden',margin:'14px 0 10px',background:'var(--sec)',gap:'2px'}});
+    if(R>0)bar.appendChild(el('div',{style:{width:(R/pos*100)+'%',background:'var(--c-info)'}}));
+    if(E>0)bar.appendChild(el('div',{style:{width:(E/pos*100)+'%',background:'var(--c-ok)'}}));
+    h.appendChild(bar);}else h.appendChild(el('div',{style:{height:'14px'}}));
+  const g=el('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'10px'}});
+  const nl=nextPlanLandlord();
+  const pot=(dot,lbl,v,subs)=>{const b=el('div',{style:{minWidth:'0'}});
+    b.appendChild(el('div',{style:{fontSize:'12px',color:'var(--muted)',display:'flex',alignItems:'center',gap:'6px'}},[el('span',{style:{width:'9px',height:'9px',borderRadius:'50%',background:dot,flexShrink:'0'}}),lbl]));
+    b.appendChild(el('div',{style:{fontSize:'19px',fontWeight:'700',color:v<0?'var(--c-danger)':'var(--text)'}},[planFmt(v)]));
+    subs.forEach(x=>{if(x)b.appendChild(el('div',{style:{fontSize:'11.5px',color:'var(--muted)'}},[x]));});return b;};
+  g.appendChild(pot('var(--c-info)',LL('احتياطي الإيجار','Rent reserve'),R,[nl?LL('للمالك ','Landlord ')+mLblL(nl)+' · '+planFmt(landlordAmt()):'']));
+  g.appendChild(pot('var(--c-ok)',LL('متاح للمصروفات','Available for expenses'),E,[mc>0.5?creditLine(mc):'']));
+  h.appendChild(g);return h;}
 function cashBox(pools){const b=el('div',{style:{background:'var(--sec)',borderRadius:'var(--rsm)',padding:'10px 14px',fontSize:'13px',display:'flex',justifyContent:'space-between',gap:'8px',flexWrap:'wrap',alignItems:'baseline'}});
   b.appendChild(el('span',{style:{fontWeight:'600'}},['💵 '+LL('النقد في الصندوق: ','Cash in the box: ')+planFmt(pools.total)]));
   b.appendChild(el('span',{style:{color:'var(--muted)',fontSize:'12px'}},['= '+LL('احتياطي الإيجار ','rent reserve ')+planFmt(pools.rentReserve)+' + '+LL('محفظة المصروفات ','expenses pool ')+planFmt(pools.expensesPool)]));return b;}
