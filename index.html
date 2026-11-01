@@ -300,7 +300,7 @@ function calcBal(){
   state.rentPeriods.forEach(_rp=>{if(_rp.startMonth>=_ps||_F)return;const _ms=_rp.amount6m/N/6;for(let i=0;i<6;i++){const mk=addM(_rp.startMonth,i);if(mk>nowM())break;const md=state.rentPayments[mk]||{};state.members.forEach(m=>{const e=Array.isArray(md)?null:md[m.id];if(e?.status==='paid'&&!e?.settlementId)return;b[m.id]-=_ms;});}});
   // Monthly dues (plan): each due is owed; cash payments bring money in; credit payments use his credit
   {const _cur=nowM();allDuesMonths().forEach(mk=>duesFor(mk).rows.forEach(r=>{
-    if(r.pay){if(r.pay.how==='credit')b[r.m]-=r.amt;return;}   // cash: paid in full, no effect
+    if(r.pay){b[r.m]-=payCr(r);return;}   // only the part covered by his credit reduces his balance
     if(mk<_cur)b[r.m]-=r.amt;                                   // overdue once the month has ended
   }));}
   return b;
@@ -328,8 +328,9 @@ function memberBreakdown(mid){
     else{lbl=t('Rent ')+mLblL(mk)+LL(' ✓ نقداً',' ✓ cash');amt=-_ms;tag='qsettled';}
     lines.push({label:lbl,amount:amt,tag});}});
   {const _cur=nowM();allDuesMonths().forEach(mk=>duesFor(mk).rows.forEach(r=>{if(r.m!==mid)return;const base=LL('القطة الشهرية ','Monthly due ')+mLblL(mk);
-    if(r.pay&&r.pay.how==='cash')lines.push({label:base+LL(' ✓ نقداً',' ✓ cash'),amount:0,tag:'qsettled'});
-    else if(r.pay)lines.push({label:base+LL(' ✓ من رصيده',' ✓ from credit'),amount:-r.amt,tag:'qsettled'});
+    if(r.pay&&payCr(r)>0&&payCa(r)>0)lines.push({label:base+LL(' ✓ من رصيده ',' ✓ from credit ')+planFmt(payCr(r))+LL(' + نقداً ',' + cash ')+planFmt(payCa(r)),amount:-payCr(r),tag:'qsettled'});
+    else if(r.pay&&r.pay.how==='cash')lines.push({label:base+LL(' ✓ نقداً',' ✓ cash'),amount:0,tag:'qsettled'});
+    else if(r.pay)lines.push({label:base+LL(' ✓ من رصيده',' ✓ from credit'),amount:-payCr(r),tag:'qsettled'});
     else if(mk<_cur)lines.push({label:base+LL(' (متأخرة)',' (overdue)'),amount:-r.amt,tag:'qattah'});
     else if(mk===_cur)lines.push({label:base+LL(' (مستحقة هذا الشهر: ',' (due this month: ')+planFmt(r.amt)+')',amount:0,tag:'qattah'});}));}
   state.settlements.forEach(s=>{if(!_k(s.date))return;
@@ -1098,12 +1099,17 @@ function rollDues(){
   duesMonths().forEach(mk=>{if(mk<cur&&!snaps[mk]){snaps[mk]=duesCfgLive();changed=true;}});
   if(changed){state={...state,duesSnap:snaps};lsS();}
 }
-function setDuePay(mk,mid,how){
+// Part of a due covered by the member's credit / paid in cash.
+// 'credit' uses his credit; if it was not enough he paid the rest in cash (cashPart). 'cash' = full cash, credit untouched.
+function payCr(r){if(!r.pay)return 0;if(r.pay.how==='credit')return Math.max(0,r.amt-Math.max(0,Math.min(+r.pay.cashPart||0,r.amt)));return Math.max(0,Math.min(+r.pay.creditPart||0,r.amt));}
+function payCa(r){return r.pay?r.amt-payCr(r):0;}
+function setDuePay(mk,mid,how,credit){
   const r=duesFor(mk).rows.find(x=>x.m===mid);if(!r)return;
+  const xp=how==='credit'&&credit!=null&&credit<r.amt-0.005?Math.round((r.amt-Math.max(0,credit))*100)/100:0;
   upd(p=>{const dues={...(p.dues||{})};const mm={...(dues[mk]||{})};
-    if(how)mm[mid]={how,amt:r.amt,rentPart:r.rentPart,date:nowD(),ts:Date.now()};else delete mm[mid];
+    if(how){mm[mid]={how,amt:r.amt,rentPart:r.rentPart,date:nowD(),ts:Date.now()};if(xp)mm[mid].cashPart=xp;}else delete mm[mid];
     dues[mk]=mm;return {...p,dues};},
-    how?('recorded '+r.name+' '+mk+' '+(how==='cash'?'cash':'from credit')+' '+Math.round(r.amt)):('undid '+r.name+' '+mk+' payment'));
+    how?('recorded '+r.name+' '+mk+' '+(how==='cash'?('cash '+Math.round(r.amt)):('from credit '+Math.round(r.amt-xp)+(xp?' + cash '+Math.round(xp):'')))):('undid '+r.name+' '+mk+' payment'));
 }
 // New chapter: an opening balance entered by the treasurer replaces the old Qattah-round bookkeeping.
 // Everything dated before the plan start month belongs to the old chapter and is summarised by that number.
@@ -1131,7 +1137,7 @@ function poolsNow(){
     const T=openingTs(),Tm=monthOfTs(T),C=planStartM(),L=[];
     let cashDues=0,rentIn=0,creditDues=0,cashOut=0,otherIn=0,reimb=0,landlordOut=0,outItems=[];
     allDuesMonths().forEach(mk=>duesFor(mk).rows.forEach(r=>{if(!r.pay||payTs(mk,r.m,r.pay)<=T)return;
-      rentIn+=r.rentPart;if(r.pay.how==='cash')cashDues+=r.amt;else creditDues+=r.amt;}));
+      rentIn+=r.rentPart;cashDues+=payCa(r);creditDues+=payCr(r);}));
     state.expenses.forEach(e=>{let paidCash=false,ts=0;
       if(e.recurring){if(e.recPaid==='pool'){paidCash=true;ts=e.recPaidAt||idTs(e.id);}}
       else if(!e.paidBy){paidCash=true;ts=idTs(e.id);}
@@ -1157,7 +1163,7 @@ function membersCredit(b){b=b||calcBal();return state.members.reduce((s,m)=>s+Ma
 function creditLine(c){return LL('منها رصيد للعيال: ','Of which members\u2019 credit: ')+planFmt(c);}
 function nextPlanLandlord(){return nextLandlord(planActive()?nowM():planStartM());}
 function freqLbl(n){n=+n||1;return n===1?LL('كل شهر','Monthly'):n===2?LL('كل شهرين','Every 2 months'):LL('كل '+n+' أشهر','Every '+n+' months');}
-function duesMonthTotals(mk){const d=duesFor(mk);let due=0,got=0,gotCash=0,gotCredit=0,np=0;d.rows.forEach(r=>{due+=r.amt;if(r.pay){got+=r.amt;if(r.pay.how==='credit')gotCredit+=r.amt;else gotCash+=r.amt;}else np++;});return {due,got,gotCash,gotCredit,unpaid:np,count:d.rows.length,isRent:d.isRent};}
+function duesMonthTotals(mk){const d=duesFor(mk);let due=0,got=0,gotCash=0,gotCredit=0,np=0;d.rows.forEach(r=>{due+=r.amt;if(r.pay){got+=r.amt;gotCredit+=payCr(r);gotCash+=payCa(r);}else np++;});return {due,got,gotCash,gotCredit,unpaid:np,count:d.rows.length,isRent:d.isRent};}
 function splitLine(tt){return tt.got>0?LL('نقداً ','Cash ')+planFmt(tt.gotCash)+' \u00b7 '+LL('من الرصيد ','From credit ')+planFmt(tt.gotCredit):'';}
 function cashHero(pools,bal){
   const T=pools.total,R=pools.rentReserve,E=pools.expensesPool,mc=membersCredit(bal);
@@ -1573,23 +1579,24 @@ function renderDues(){
     const act=el('div',{style:{display:'flex',gap:'6px',flexShrink:'0'}});
     const credit=(bal[r.m]||0)+(!r.pay&&mk<nowM()?r.amt:0);
     if(r.pay){
-      const lbl=r.pay.how==='cash'?'✓ '+LL('نقداً','Cash'):'✓ '+LL('من رصيده','From credit');
+      const lbl=payCr(r)>0&&payCa(r)>0?'✓ '+LL('رصيد ','Credit ')+planFmt(payCr(r))+' + '+LL('نقداً ','cash ')+planFmt(payCa(r)):r.pay.how==='credit'?'✓ '+LL('من رصيده','From credit'):'✓ '+LL('نقداً','Cash');
       const b=el('button',{class:'btn btn-sm',style:{background:'var(--s-ok)',color:'var(--c-ok)',border:'1px solid var(--c-ok)55',fontWeight:'600'},title:LL('اضغط للتراجع','Tap to undo')},[lbl]);
       if(isAdmin)b.addEventListener('click',()=>setDuePay(mk,r.m,null));else b.disabled=true;
       act.appendChild(b);
     }else if(isAdmin){
+      const part=credit>0.5&&credit<r.amt-0.01;
       const cb=el('button',{class:'btn btn-sm btn-p'},[LL('نقداً','Cash')]);cb.addEventListener('click',()=>setDuePay(mk,r.m,'cash'));act.appendChild(cb);
-      if(credit>=r.amt-0.01){const kb=el('button',{class:'btn btn-sm btn-g',title:LL('له رصيد ','Credit ')+planFmt(credit)},[LL('من رصيده','From credit')]);kb.addEventListener('click',()=>setDuePay(mk,r.m,'credit'));act.appendChild(kb);}
+      if(credit>0.5){const kb=el('button',{class:'btn btn-sm btn-g',title:LL('له رصيد ','Credit ')+planFmt(credit)},[part?LL('من رصيده + ','Credit + ')+planFmt(r.amt-credit)+LL(' نقداً',' cash'):LL('من رصيده','From credit')]);kb.addEventListener('click',()=>setDuePay(mk,r.m,'credit',part?credit:null));act.appendChild(kb);}
     }else act.appendChild(el('span',{class:'pill',style:{background:'var(--s-warn)',color:'var(--c-warn)'}},[LL('ما دفع','Unpaid')]));
     row.appendChild(act);
-    if(!r.pay&&credit>0.5&&credit<r.amt-0.01)lft.appendChild(el('div',{style:{fontSize:'11.5px',color:'var(--c-info)'}},[LL('له رصيد ','Has credit ')+planFmt(credit)+LL(' (أقل من المطلوب)',' (less than due)')]));
+    if(!r.pay&&credit>0.5&&credit<r.amt-0.01)lft.appendChild(el('div',{style:{fontSize:'11.5px',color:'var(--c-info)'}},[LL('له رصيد ','Has credit ')+planFmt(credit)+LL(' — «من رصيده» يستخدمه ويدفع الباقي ',' — “Credit” uses it and he pays the rest ')+planFmt(r.amt-credit)+LL(' نقداً',' in cash')]));
     list.appendChild(row);
   });
   w.appendChild(list);
   const noPlan=state.members.filter(m=>m.plan!=='A'&&m.plan!=='B');
   if(noPlan.length)w.appendChild(el('div',{style:{fontSize:'12.5px',color:'var(--c-warn)',margin:'8px 2px 0'}},['⚠ '+LL('بدون طريقة: ','No plan: ')+noPlan.map(m=>m.name).join(LL('، ',', '))]));
   w.appendChild(el('div',{style:{fontSize:'11.5px',color:'var(--muted)',margin:'8px 2px 22px',lineHeight:'1.6'}},[
-    LL('«من رصيده» تظهر لما يكون العضو دافع مصروفات للمجموعة من جيبه بمبلغ يغطي القطة — تُخصم من رصيده بدل ما يدفع مرتين.','“From credit” appears when a member has already paid group expenses out of pocket that cover this due — it is deducted from what the group owes him instead of him paying twice.')]));
+    LL('«من رصيده» تظهر لما يكون العضو دافع مصروفات للمجموعة من جيبه بمبلغ يغطي القطة — تُخصم من رصيده بدل ما يدفع مرتين. ولو رصيده أقل من القطة، «من رصيده» يستخدم رصيده ويدفع الباقي نقداً. «نقداً» دايماً يعني دفعها كاملة نقداً ورصيده يبقى له.','“From credit” appears when a member has already paid group expenses out of pocket that cover this due — it is deducted from what the group owes him instead of him paying twice. If his credit is less than the due, “Credit” uses it and he pays the rest in cash. “Cash” always means paid in full in cash, keeping his credit.')]));
 
   // Plan + forecast
   w.appendChild(renderPlanSection());
